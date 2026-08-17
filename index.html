@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NOVA</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+
+<div class="scan"></div>
+<div class="hud tl"></div><div class="hud tr"></div>
+<div class="hud bl"></div><div class="hud br"></div>
+
+<!-- LOADING -->
+<div class="loading" id="loading">
+  <div class="ld-logo">NOV<em>A</em></div>
+  <div class="ld-bar"><div class="ld-inner"></div></div>
+  <div class="ld-txt" id="ldTxt">INICIALIZANDO...</div>
+</div>
+
+<!-- APP -->
+<div class="app">
+  <header>
+    <div>
+      <div class="logo">NOV<em>A</em></div>
+      <div class="tagline">SISTEMA AUTÓNOMO DE INTELIGENCIA</div>
+    </div>
+    <div class="hud-info">
+      <div><span class="dot"></span>ONLINE</div>
+      <div id="clock">--:--:--</div>
+      <div id="dateD">-- --- ----</div>
+    </div>
+  </header>
+
+  <div class="div"></div>
+
+  <div class="center">
+    <div class="orb-wrap">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <canvas id="orb" width="300" height="300"></canvas>
+    </div>
+    <div class="orb-state" id="orbLbl">EN ESPERA</div>
+
+    <div class="quick-actions">
+      <div class="qa-btn" id="qaTasks">📋 TAREAS</div>
+      <div class="qa-btn" id="qaEmail">✉️ EMAIL</div>
+      <div class="qa-btn" id="qaBriefing">📊 BRIEFING</div>
+      <div class="qa-btn" id="qaCalendar">📅 AGENDA</div>
+      <div class="qa-btn" id="qaMarketing">🎯 MARKETING</div>
+    </div>
+
+    <div class="chat-area">
+      <div class="comm-log" id="display">
+        <div class="empty" id="ph">// CARGANDO... //</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="div"></div>
+
+  <div class="input-bar">
+    <button class="btn-mic" id="micBtn">🎙️</button>
+    <input class="inp" type="text" id="txtIn" placeholder="Habla con NOVA o pide abrir tareas, email, agenda...">
+    <button class="btn-send" id="btnSend">ENVIAR</button>
+  </div>
+
+  <footer>
+    <span>N.O.V.A v3.0</span>
+    <span id="sesId">SES---------</span>
+    <span class="clr" id="btnReset">[ RESET ]</span>
+  </footer>
+</div>
+
+<!-- FLOATING PANELS -->
+
+<!-- TASKS -->
+<div class="overlay" id="ov-tasks">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">📋 GESTIÓN DE TAREAS</div>
+      <div class="fp-close" data-panel="tasks">✕ CERRAR</div>
+    </div>
+    <div class="fp-body">
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <input class="fi" type="text" id="taskIn" placeholder="Nueva tarea..." style="flex:1;">
+        <select class="fi-sel" id="taskPri" style="width:auto;">
+          <option value="u">🔴 URGENTE</option>
+          <option value="h">🟡 ALTA</option>
+          <option value="n" selected>🔵 NORMAL</option>
+        </select>
+        <button class="action-btn" id="btnAddTask">+ AÑADIR</button>
+      </div>
+      <div id="tasksList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- EMAIL -->
+<div class="overlay" id="ov-email">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">✉️ REDACTOR DE EMAILS</div>
+      <div class="fp-close" data-panel="email">✕ CERRAR</div>
+    </div>
+    <div class="fp-body">
+      <div class="row-fields">
+        <div class="field"><div class="label">DESTINATARIO</div><input class="fi" type="text" id="eTo" placeholder="nombre@empresa.com"></div>
+        <div class="field"><div class="label">ASUNTO</div><input class="fi" type="text" id="eSubj" placeholder="Asunto del email"></div>
+      </div>
+      <div class="field">
+        <div class="label">TONO</div>
+        <select class="fi-sel" id="eTone">
+          <option value="profesional">Profesional</option>
+          <option value="formal">Formal</option>
+          <option value="cercano">Cercano y directo</option>
+          <option value="urgente">Urgente</option>
+          <option value="disculpa">Disculpa / Rectificación</option>
+          <option value="seguimiento">Seguimiento comercial</option>
+          <option value="propuesta">Propuesta de colaboración</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="label">¿QUÉ QUIERES COMUNICAR?</div>
+        <textarea class="fi-ta" id="eBody" placeholder="Describe brevemente el mensaje..."></textarea>
+      </div>
+      <button class="action-btn full" id="btnGenEmail">⚡ GENERAR EMAIL</button>
+      <div style="margin-top:14px;position:relative;">
+        <div class="result-box" id="eResult"><span class="result-placeholder">// El email aparecerá aquí //</span></div>
+        <button class="copy-btn" id="copyBtnEmail">COPIAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BRIEFING -->
+<div class="overlay" id="ov-briefing">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">📊 BRIEFING DIARIO</div>
+      <div class="fp-close" data-panel="briefing">✕ CERRAR</div>
+    </div>
+    <div class="fp-body">
+      <div class="brief-grid">
+        <div class="brief-card"><div class="bc-title">HORA</div><div class="bc-big" id="bTime">--:--</div></div>
+        <div class="brief-card"><div class="bc-title">TAREAS PENDIENTES</div><div class="bc-val" id="bTasks">—</div></div>
+        <div class="brief-card brief-span"><div class="bc-title">RESUMEN INTELIGENTE</div><div class="bc-val" id="bSummary">Pulsa Generar para obtener tu briefing personalizado.</div></div>
+        <div class="brief-card brief-span"><div class="bc-title">CONTEXTO DEL DÍA</div><div class="bc-val" id="bCtx">—</div></div>
+      </div>
+      <button class="action-btn full" id="btnGenBriefing" style="margin-top:12px;">⚡ GENERAR BRIEFING</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALENDAR -->
+<div class="overlay" id="ov-calendar">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">📅 AGENDA — GOOGLE CALENDAR</div>
+      <div class="fp-close" data-panel="calendar">✕ CERRAR</div>
+    </div>
+    <div class="fp-body">
+      <div id="calSetup" style="display:flex;flex-direction:column;gap:12px;align-items:center;padding:20px 0;text-align:center;">
+        <p style="color:var(--muted);font-size:13px;line-height:1.7;max-width:400px;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
+        <button class="action-btn" id="btnConnectCal" style="border-color:var(--green);color:var(--green);">CONECTAR GOOGLE CALENDAR</button>
+      </div>
+      <div id="calEvents" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MARKETING -->
+<div class="overlay" id="ov-marketing">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">🎯 ESTRATEGIA DE MARKETING</div>
+      <div class="fp-close" data-panel="marketing">✕ CERRAR</div>
+    </div>
+    <div class="fp-body">
+      <div class="mkt-chips" id="mktChips">
+        <div class="mkt-chip on" data-mode="campaña">CAMPAÑA</div>
+        <div class="mkt-chip" data-mode="copy">COPYWRITING</div>
+        <div class="mkt-chip" data-mode="redes">REDES SOCIALES</div>
+        <div class="mkt-chip" data-mode="seo">SEO</div>
+        <div class="mkt-chip" data-mode="embudo">EMBUDO DE VENTAS</div>
+        <div class="mkt-chip" data-mode="analisis">ANÁLISIS</div>
+      </div>
+      <div class="field">
+        <div class="label">DESCRIBE TU NEGOCIO / OBJETIVO</div>
+        <textarea class="fi-ta" id="mktIn" placeholder="Ej: Tienda online de ropa sostenible..." style="min-height:100px;"></textarea>
+      </div>
+      <button class="action-btn full" id="btnGenMarketing">⚡ GENERAR ESTRATEGIA</button>
+      <div style="margin-top:12px;position:relative;">
+        <div class="result-box" id="mktResult" style="min-height:120px;"><span class="result-placeholder">// La estrategia aparecerá aquí //</span></div>
+        <button class="copy-btn" id="copyBtnMarketing">COPIAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/init.js"></script>
+</body>
+</html>

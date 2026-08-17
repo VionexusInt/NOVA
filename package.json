@@ -1,0 +1,26 @@
+{
+  "name": "nova",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "http-server -p 8080",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "live-server": "^1.2.2",
+    "vite": "^8.2.1"
+  },
+  "dependencies": {
+    "@gradio/client": "^2.5.0",
+    "cors": "^2.8.6",
+    "edge-tts-node": "^1.5.7",
+    "express": "^5.2.1",
+    "google-tts-api": "^2.0.2",
+    "openai": "^7.4.0",
+    "replicate": "^1.4.0",
+    "ws": "^8.21.3"
+  }
+}

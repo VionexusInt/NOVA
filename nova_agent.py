@@ -1,0 +1,610 @@
+import os
+import sys
+import json
+import subprocess
+import webbrowser
+import pyautogui
+import pyperclip
+import time
+import threading
+import hashlib
+import platform
+import shutil
+import glob
+import signal
+from pathlib import Path
+from datetime import datetime
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0.2
+
+# Rutas base
+HOME = Path.home()
+DESKTOP = HOME / "Desktop"
+DOCUMENTS = HOME / "Documents"
+DOWNLOADS = HOME / "Downloads"
+
+# ══════════════════════════════════════════
+# MONITORIZACIÓN DEL SISTEMA
+# ══════════════════════════════════════════
+def get_system_info():
+    try:
+        import psutil
+        cpu = psutil.cpu_percent(interval=0.5)
+        ram = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        battery = psutil.sensors_battery() if hasattr(psutil, 'sensors_battery') else None
+        
+        # Top procesos por CPU
+        procs = sorted(
+            [p.info for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent'])
+             if p.info['cpu_percent'] > 0],
+            key=lambda x: x['cpu_percent'], reverse=True
+        )[:5]
+        
+        return {
+            'cpu': round(cpu, 1),
+            'ram_usada': round(ram.used / 1e9, 1),
+            'ram_total': round(ram.total / 1e9, 1),
+            'ram_pct': ram.percent,
+            'disco_libre': round(disk.free / 1e9, 1),
+            'disco_total': round(disk.total / 1e9, 1),
+            'bateria': round(battery.percent) if battery else None,
+            'cargando': battery.power_plugged if battery else None,
+            'procesos_top': procs,
+        }
+    except ImportError:
+        return {'error': 'psutil no instalado. Ejecuta: pip install psutil'}
+    except Exception as e:
+        return {'error': str(e)}
+
+def get_procesos():
+    try:
+        import psutil
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status']):
+            try:
+                procs.append(p.info)
+            except:
+                pass
+        return sorted(procs, key=lambda x: x.get('cpu_percent', 0), reverse=True)[:20]
+    except ImportError:
+        return []
+
+def matar_proceso(nombre_o_pid):
+    try:
+        import psutil
+        killed = []
+        for p in psutil.process_iter(['pid', 'name']):
+            try:
+                if str(p.info['pid']) == str(nombre_o_pid) or \
+                   nombre_o_pid.lower() in p.info['name'].lower():
+                    p.kill()
+                    killed.append(p.info['name'])
+            except:
+                pass
+        return f"Procesos terminados: {', '.join(killed)}" if killed else "No se encontró el proceso"
+    except ImportError:
+        return "psutil no instalado"
+
+# ══════════════════════════════════════════
+# GESTIÓN DE ARCHIVOS Y CARPETAS
+# ══════════════════════════════════════════
+def listar_carpeta(ruta=None):
+    if not ruta:
+        ruta = DESKTOP
+    ruta = Path(ruta)
+    if not ruta.exists():
+        return f"No existe: {ruta}"
+    items = list(ruta.iterdir())
+    return {
+        'carpeta': str(ruta),
+        'archivos': [{'nombre': i.name, 'tipo': 'carpeta' if i.is_dir() else 'archivo', 'tamaño': i.stat().st_size if i.is_file() else 0} for i in items[:30]]
+    }
+
+def buscar_archivo(nombre, donde=None):
+    donde = donde or str(HOME)
+    resultados = []
+    try:
+        for r in Path(donde).rglob(f"*{nombre}*"):
+            resultados.append(str(r))
+            if len(resultados) >= 20:
+                break
+    except:
+        pass
+    return resultados
+
+def crear_carpeta(ruta):
+    Path(ruta).mkdir(parents=True, exist_ok=True)
+    return f"Carpeta creada: {ruta}"
+
+def mover_archivo(origen, destino):
+    shutil.move(origen, destino)
+    return f"Movido: {origen} → {destino}"
+
+def copiar_archivo(origen, destino):
+    shutil.copy2(origen, destino)
+    return f"Copiado: {origen} → {destino}"
+
+def renombrar_archivo(origen, nuevo_nombre):
+    p = Path(origen)
+    nuevo = p.parent / nuevo_nombre
+    p.rename(nuevo)
+    return f"Renombrado: {p.name} → {nuevo_nombre}"
+
+def abrir_archivo(ruta):
+    subprocess.Popen(f'start "" "{ruta}"', shell=True)
+    return f"Abriendo: {ruta}"
+
+def abrir_carpeta(ruta=None):
+    if not ruta:
+        ruta = DESKTOP
+    subprocess.Popen(f'explorer "{ruta}"', shell=True)
+    return f"Abriendo carpeta: {ruta}"
+
+# ══════════════════════════════════════════
+# CONTROL DE VENTANAS Y APLICACIONES
+# ══════════════════════════════════════════
+def listar_ventanas():
+    try:
+        import pygetwindow as gw
+        ventanas = gw.getAllTitles()
+        return [v for v in ventanas if v.strip()]
+    except:
+        return []
+
+def enfocar_ventana(titulo):
+    try:
+        import pygetwindow as gw
+        wins = gw.getWindowsWithTitle(titulo)
+        if wins:
+            wins[0].activate()
+            return f"Ventana enfocada: {titulo}"
+        return f"No encontré ventana: {titulo}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def cerrar_ventana_titulo(titulo):
+    try:
+        import pygetwindow as gw
+        wins = gw.getWindowsWithTitle(titulo)
+        if wins:
+            wins[0].close()
+            return f"Ventana cerrada: {titulo}"
+        return f"No encontré: {titulo}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def minimizar_ventana(titulo=None):
+    if titulo:
+        try:
+            import pygetwindow as gw
+            wins = gw.getWindowsWithTitle(titulo)
+            if wins:
+                wins[0].minimize()
+                return f"Minimizada: {titulo}"
+        except:
+            pass
+    pyautogui.hotkey('win', 'd')
+    return "Escritorio mostrado"
+
+def maximizar_ventana(titulo=None):
+    if titulo:
+        try:
+            import pygetwindow as gw
+            wins = gw.getWindowsWithTitle(titulo)
+            if wins:
+                wins[0].maximize()
+                return f"Maximizada: {titulo}"
+        except:
+            pass
+    pyautogui.hotkey('win', 'up')
+    return "Ventana maximizada"
+
+# ══════════════════════════════════════════
+# ACCIONES BÁSICAS PC
+# ══════════════════════════════════════════
+def abrir_programa(nombre):
+    programas = {
+        'chrome': 'chrome', 'google chrome': 'chrome',
+        'firefox': 'firefox',
+        'word': 'winword', 'microsoft word': 'winword',
+        'excel': 'excel', 'microsoft excel': 'excel',
+        'powerpoint': 'powerpnt',
+        'notepad': 'notepad', 'bloc de notas': 'notepad',
+        'calculadora': 'calc', 'calculator': 'calc',
+        'explorador': 'explorer', 'file explorer': 'explorer',
+        'vscode': 'code', 'visual studio code': 'code',
+        'spotify': 'spotify', 'whatsapp': 'whatsapp',
+        'teams': 'teams', 'zoom': 'zoom', 'discord': 'discord',
+        'paint': 'mspaint', 'cmd': 'cmd', 'terminal': 'cmd',
+        'powershell': 'powershell',
+        'task manager': 'taskmgr', 'administrador de tareas': 'taskmgr',
+        'configuracion': 'ms-settings:', 'settings': 'ms-settings:',
+        'panel de control': 'control',
+    }
+    cmd = programas.get(nombre.lower(), nombre)
+    subprocess.Popen(cmd, shell=True)
+    return f"Abriendo {nombre}"
+
+def abrir_web(url):
+    if not url.startswith('http'):
+        url = 'https://' + url
+    webbrowser.open(url)
+    return f"Abriendo {url}"
+
+def buscar_google(query):
+    url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+    webbrowser.open(url)
+    return f"Buscando '{query}' en Google"
+
+def escribir_texto(texto, delay=0.03):
+    time.sleep(0.5)
+    pyautogui.write(texto, interval=delay)
+    return f"Texto escrito"
+
+def tecla(key):
+    pyautogui.press(key)
+    return f"Tecla: {key}"
+
+def hotkey(*keys):
+    pyautogui.hotkey(*keys)
+    return f"Hotkey: {'+'.join(keys)}"
+
+def screenshot(nombre="captura"):
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ruta = DESKTOP / f"{nombre}_{ts}.png"
+    pyautogui.screenshot(str(ruta))
+    subprocess.Popen(f'start "" "{ruta}"', shell=True)
+    return f"Captura guardada: {ruta.name}"
+
+def portapapeles(texto):
+    pyperclip.copy(texto)
+    return "Copiado al portapapeles"
+
+def volumen(accion):
+    mapa = {'subir': ('volumeup', 5), 'bajar': ('volumedown', 5), 'silencio': ('volumemute', 1)}
+    if accion in mapa:
+        k, n = mapa[accion]
+        for _ in range(n): pyautogui.press(k)
+        return f"Volumen: {accion}"
+    return "Acción desconocida"
+
+# ══════════════════════════════════════════
+# CREACIÓN DE DOCUMENTOS
+# ══════════════════════════════════════════
+def crear_word(nombre, contenido):
+    try:
+        from docx import Document
+        from docx.shared import Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        doc = Document()
+        t = doc.add_heading(nombre, 0)
+        t.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        if isinstance(contenido, list):
+            for item in contenido:
+                tipo = item.get('tipo', 'parrafo')
+                if tipo == 'titulo':
+                    doc.add_heading(item['texto'], level=item.get('nivel', 1))
+                elif tipo == 'parrafo':
+                    doc.add_paragraph(item['texto'])
+                elif tipo == 'lista':
+                    for p in item.get('items', []):
+                        doc.add_paragraph(p, style='List Bullet')
+                elif tipo == 'tabla':
+                    filas = item.get('filas', [])
+                    if filas:
+                        tbl = doc.add_table(rows=len(filas), cols=len(filas[0]))
+                        tbl.style = 'Table Grid'
+                        for i, fila in enumerate(filas):
+                            for j, cel in enumerate(fila):
+                                tbl.rows[i].cells[j].text = str(cel)
+        else:
+            for linea in str(contenido).split('\\n'):
+                doc.add_paragraph(linea)
+
+        ruta = DESKTOP / f"{nombre}.docx"
+        doc.save(str(ruta))
+        subprocess.Popen(f'start "" "{ruta}"', shell=True)
+        return f"Word creado: {nombre}.docx"
+    except Exception as e:
+        return f"Error Word: {e}"
+
+def crear_pdf(nombre, contenido):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.units import cm
+
+        ruta = DESKTOP / f"{nombre}.pdf"
+        doc = SimpleDocTemplate(str(ruta), pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+        styles = getSampleStyleSheet()
+        story = [Paragraph(nombre, styles['Title']), Spacer(1, 12)]
+
+        if isinstance(contenido, list):
+            for item in contenido:
+                tipo = item.get('tipo', 'parrafo')
+                if tipo == 'titulo':
+                    story.append(Paragraph(item['texto'], styles['Heading1']))
+                elif tipo == 'parrafo':
+                    story.append(Paragraph(item['texto'], styles['Normal']))
+                elif tipo == 'lista':
+                    for p in item.get('items', []):
+                        story.append(Paragraph(f"• {p}", styles['Normal']))
+                story.append(Spacer(1, 8))
+        else:
+            for linea in str(contenido).split('\\n'):
+                if linea.strip():
+                    story.append(Paragraph(linea, styles['Normal']))
+                    story.append(Spacer(1, 4))
+
+        doc.build(story)
+        subprocess.Popen(f'start "" "{ruta}"', shell=True)
+        return f"PDF creado: {nombre}.pdf"
+    except Exception as e:
+        return f"Error PDF: {e}"
+
+def crear_imagen(nombre, texto, ancho=1920, alto=1080, bg='#000810', color='#00d4ff'):
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import textwrap
+
+        img = Image.new('RGB', (int(ancho), int(alto)), color=bg)
+        draw = ImageDraw.Draw(img)
+
+        try:
+            font = ImageFont.truetype("arial.ttf", int(alto * 0.04))
+            font_big = ImageFont.truetype("arialbd.ttf", int(alto * 0.07))
+        except:
+            font = ImageFont.load_default()
+            font_big = font
+
+        r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+        
+        lines = textwrap.wrap(texto, width=35)
+        y = alto // 2 - len(lines) * int(alto * 0.05)
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=font_big if i == 0 else font)
+            w = bbox[2] - bbox[0]
+            draw.text(((ancho - w) // 2, y), line, fill=(r, g, b), font=font_big if i == 0 else font)
+            y += int(alto * 0.08) if i == 0 else int(alto * 0.055)
+
+        ruta = DESKTOP / f"{nombre}.png"
+        img.save(str(ruta))
+        subprocess.Popen(f'start "" "{ruta}"', shell=True)
+        return f"Imagen creada: {nombre}.png"
+    except Exception as e:
+        return f"Error imagen: {e}"
+
+def ejecutar_cmd(cmd):
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        return result.stdout or result.stderr or "Ejecutado"
+    except Exception as e:
+        return str(e)
+
+# ══════════════════════════════════════════
+# AUTOMATIZACIONES
+# ══════════════════════════════════════════
+automatizaciones = {}  # nombre -> {condicion, accion, activa}
+
+def crear_automatizacion(nombre, condicion_tipo, condicion_valor, accion_tipo, accion_valor):
+    automatizaciones[nombre] = {
+        'condicion_tipo': condicion_tipo,
+        'condicion_valor': condicion_valor,
+        'accion_tipo': accion_tipo,
+        'accion_valor': accion_valor,
+        'activa': True,
+        'creada': datetime.now().isoformat()
+    }
+    return f"Automatización creada: '{nombre}'"
+
+def listar_automatizaciones():
+    if not automatizaciones:
+        return "Sin automatizaciones configuradas"
+    return list(automatizaciones.keys())
+
+def eliminar_automatizacion(nombre):
+    if nombre in automatizaciones:
+        del automatizaciones[nombre]
+        return f"Eliminada: {nombre}"
+    return f"No encontrada: {nombre}"
+
+# Monitor de automatizaciones en background
+def monitor_automatizaciones():
+    while True:
+        try:
+            import psutil
+            for nombre, auto in list(automatizaciones.items()):
+                if not auto['activa']:
+                    continue
+                tipo = auto['condicion_tipo']
+                valor = auto['condicion_valor']
+                disparar = False
+
+                if tipo == 'cpu_mayor':
+                    if psutil.cpu_percent() > float(valor):
+                        disparar = True
+                elif tipo == 'ram_mayor':
+                    if psutil.virtual_memory().percent > float(valor):
+                        disparar = True
+                elif tipo == 'hora':
+                    if datetime.now().strftime('%H:%M') == valor:
+                        disparar = True
+
+                if disparar:
+                    accion = auto['accion_tipo']
+                    aval = auto['accion_valor']
+                    if accion == 'abrir_web':
+                        abrir_web(aval)
+                    elif accion == 'abrir_programa':
+                        abrir_programa(aval)
+                    elif accion == 'notificar':
+                        notificar_frontend(nombre, aval)
+                    auto['activa'] = False  # evitar loop
+        except:
+            pass
+        time.sleep(10)
+
+# Canal de notificaciones proactivas al frontend
+notificaciones_pendientes = []
+
+def notificar_frontend(titulo, mensaje):
+    notificaciones_pendientes.append({
+        'titulo': titulo,
+        'mensaje': mensaje,
+        'ts': datetime.now().isoformat()
+    })
+
+# Monitor proactivo del sistema
+def monitor_proactivo():
+    UMBRAL_CPU = 85
+    UMBRAL_RAM = 90
+    ultimo_aviso_cpu = 0
+    ultimo_aviso_ram = 0
+
+    while True:
+        try:
+            import psutil
+            cpu = psutil.cpu_percent(interval=2)
+            ram = psutil.virtual_memory().percent
+            now = time.time()
+
+            if cpu > UMBRAL_CPU and now - ultimo_aviso_cpu > 120:
+                notificar_frontend('⚠ CPU Alta', f'CPU al {cpu}%. Revisar procesos.')
+                ultimo_aviso_cpu = now
+
+            if ram > UMBRAL_RAM and now - ultimo_aviso_ram > 120:
+                notificar_frontend('⚠ RAM Alta', f'RAM al {ram}%. Sistema bajo presión.')
+                ultimo_aviso_ram = now
+
+            battery = psutil.sensors_battery()
+            if battery and not battery.power_plugged and battery.percent < 15:
+                notificar_frontend('🔋 Batería baja', f'Batería al {battery.percent}%. Conecta el cargador.')
+
+        except:
+            pass
+        time.sleep(15)
+
+# ══════════════════════════════════════════
+# ENDPOINTS
+# ══════════════════════════════════════════
+
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    return jsonify({'ok': True, 'mensaje': 'Agente NOVA v2 activo'})
+
+@app.route('/api/sistema', methods=['GET'])
+def sistema():
+    return jsonify(get_system_info())
+
+@app.route('/api/notificaciones', methods=['GET'])
+def notificaciones():
+    global notificaciones_pendientes
+    ns = notificaciones_pendientes.copy()
+    notificaciones_pendientes = []
+    return jsonify(ns)
+
+@app.route('/api/accion', methods=['POST'])
+def accion():
+    data = request.get_json() or {}
+    acc = data.get('accion', '')
+    p = data.get('params', {})
+
+    print(f"🤖 {acc} | {p}")
+
+    mapa = {
+        # Sistema
+        'sistema_info': lambda: get_system_info(),
+        'procesos': lambda: get_procesos(),
+        'matar_proceso': lambda: matar_proceso(p.get('nombre', '')),
+
+        # Archivos
+        'listar_carpeta': lambda: listar_carpeta(p.get('ruta')),
+        'buscar_archivo': lambda: buscar_archivo(p.get('nombre', ''), p.get('donde')),
+        'crear_carpeta': lambda: crear_carpeta(p.get('ruta', '')),
+        'mover_archivo': lambda: mover_archivo(p.get('origen', ''), p.get('destino', '')),
+        'copiar_archivo': lambda: copiar_archivo(p.get('origen', ''), p.get('destino', '')),
+        'renombrar': lambda: renombrar_archivo(p.get('origen', ''), p.get('nombre', '')),
+        'abrir_archivo': lambda: abrir_archivo(p.get('ruta', '')),
+        'abrir_carpeta': lambda: abrir_carpeta(p.get('ruta')),
+
+        # Ventanas
+        'listar_ventanas': lambda: listar_ventanas(),
+        'enfocar_ventana': lambda: enfocar_ventana(p.get('titulo', '')),
+        'cerrar_ventana': lambda: cerrar_ventana_titulo(p.get('titulo', '')),
+        'minimizar_ventana': lambda: minimizar_ventana(p.get('titulo')),
+        'maximizar_ventana': lambda: maximizar_ventana(p.get('titulo')),
+
+        # Programas y webs
+        'abrir_programa': lambda: abrir_programa(p.get('nombre', '')),
+        'abrir_web': lambda: abrir_web(p.get('url', '')),
+        'buscar_google': lambda: buscar_google(p.get('query', '')),
+
+        # Teclado y ratón
+        'escribir': lambda: escribir_texto(p.get('texto', ''), float(p.get('delay', 0.03))),
+        'tecla': lambda: tecla(p.get('key', '')),
+        'hotkey': lambda: hotkey(*p.get('keys', [])),
+        'portapapeles': lambda: portapapeles(p.get('texto', '')),
+        'click': lambda: (pyautogui.click(int(p['x']), int(p['y'])) if 'x' in p else pyautogui.click()) or 'Click',
+        'scroll': lambda: pyautogui.scroll(int(p.get('cantidad', 3))) or 'Scroll',
+        'screenshot': lambda: screenshot(p.get('nombre', 'captura')),
+
+        # Sistema
+        'volumen': lambda: volumen(p.get('accion', 'subir')),
+
+        # Documentos
+        'crear_word': lambda: crear_word(p.get('nombre', 'doc'), p.get('contenido', '')),
+        'crear_pdf': lambda: crear_pdf(p.get('nombre', 'doc'), p.get('contenido', '')),
+        'crear_imagen': lambda: crear_imagen(p.get('nombre', 'img'), p.get('texto', ''), p.get('ancho', 1920), p.get('alto', 1080)),
+        'ejecutar_cmd': lambda: ejecutar_cmd(p.get('cmd', '')),
+
+        # Automatizaciones
+        'crear_auto': lambda: crear_automatizacion(p.get('nombre',''), p.get('cond_tipo',''), p.get('cond_valor',''), p.get('acc_tipo',''), p.get('acc_valor','')),
+        'listar_autos': lambda: listar_automatizaciones(),
+        'eliminar_auto': lambda: eliminar_automatizacion(p.get('nombre', '')),
+    }
+
+    fn = mapa.get(acc)
+    if not fn:
+        return jsonify({'ok': False, 'error': f'Acción desconocida: {acc}'}), 400
+
+    try:
+        resultado = fn()
+        print(f"✅ {resultado}")
+        return jsonify({'ok': True, 'resultado': resultado})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# ══════════════════════════════════════════
+# ARRANQUE
+# ══════════════════════════════════════════
+if __name__ == '__main__':
+    print("🤖 NOVA Agente v2 arrancando...")
+    print("📦 Instalando dependencias opcionales...")
+
+    # Arrancar monitores en background
+    threading.Thread(target=monitor_proactivo, daemon=True).start()
+    threading.Thread(target=monitor_automatizaciones, daemon=True).start()
+
+    print("✅ Monitores activos")
+    print("🚀 Servidor en http://localhost:4000")
+    print("━" * 50)
+    print("Capacidades:")
+    print("  • Monitorización CPU/RAM/batería en tiempo real")
+    print("  • Gestión de archivos y carpetas")
+    print("  • Control de ventanas y aplicaciones")
+    print("  • Automatizaciones por condición")
+    print("  • Alertas proactivas")
+    print("━" * 50)
+
+    app.run(host='127.0.0.1', port=4000, threaded=True)
