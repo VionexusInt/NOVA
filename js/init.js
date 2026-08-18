@@ -9,13 +9,13 @@ import { initCalendar } from './calendar.js';
 import { setMkt, genMarketing } from './marketing.js';
 import { abrirPanelMemoria, initMemoriaStyles } from './memoria.js';
 import { initCodeStyles } from './programacion.js';
+import { initMejoraStyles } from './mejora.js';
 import { activarModoDespertar } from './wake.js';
 import { toggleMic, initWakeWord } from './mic.js';
 import { speak } from './audio.js';
 import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
 
-// Reloj
 function tick() {
   const n = new Date();
   const clockEl = document.getElementById('clock');
@@ -32,7 +32,6 @@ setInterval(tick, 1000); tick();
 const sesEl = document.getElementById('sesId');
 if (sesEl) sesEl.textContent = 'SES-' + Math.random().toString(36).substring(2,9).toUpperCase();
 
-// ── EVENT LISTENERS ──
 document.getElementById('btnSend')?.addEventListener('click', sendText);
 document.getElementById('txtIn')?.addEventListener('keydown', e => { if (e.key==='Enter') sendText(); });
 document.getElementById('micBtn')?.addEventListener('click', toggleMic);
@@ -67,12 +66,10 @@ document.querySelectorAll('.mkt-chip').forEach(chip => {
 document.getElementById('btnGenMarketing')?.addEventListener('click', genMarketing);
 document.getElementById('copyBtnMarketing')?.addEventListener('click', () => copyTxt('mktResult'));
 
-// ── INIT ──
 async function initApp() {
   rmTyping();
 
   try {
-    // Cargar todo en paralelo — mensajes, memoria texto Y memoria estructurada
     const [todosRaw, memory, memEstructurada] = await Promise.all([
       loadMsgs(),
       loadMem(),
@@ -91,74 +88,37 @@ async function initApp() {
     }));
     state.msgN = state.hist.length;
 
-    // Log de lo que sabe NOVA
     const memFormateada = formatearMemoria(state.memEstructurada);
-    if (memFormateada) {
-      console.log('🧠 Memoria estructurada cargada:\n' + memFormateada);
-    }
+    if (memFormateada) console.log('🧠 Memoria estructurada cargada:\n' + memFormateada);
 
     const ph = document.getElementById('ph');
     if (ph) ph.remove();
 
     if (todos.length > 0) {
       todos.slice(-8).forEach(m => addMsg(m.rol === 'user' ? 'user' : 'nova', m.contenido));
-      // Saludo personalizado basado en memoria
-      greetUser(true);
-    } else {
-      greetUser(false);
     }
 
   } catch (e) {
     console.error('Error init:', e);
     const ph = document.getElementById('ph');
     if (ph) ph.remove();
-    greetUser(false);
   }
 
   initOrb();
   initWakeWord();
   initMemoriaStyles();
   initCodeStyles();
+  initMejoraStyles();
   window._novaDespertar = activarModoDespertar;
 
-  // Ocultar loading
   const loadingEl = document.getElementById('loading');
   if (loadingEl) {
     loadingEl.style.opacity = '0';
     setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
   }
-}
 
-async function greetUser(tieneHistorial) {
-  const hora = new Date().getHours();
-  const momento = hora < 12 ? 'mañana' : hora < 20 ? 'tarde' : 'noche';
-  const memFormateada = formatearMemoria(state.memEstructurada);
-
-  let greeting;
-
-  if (tieneHistorial && (state.mem || memFormateada)) {
-    // Saludo personalizado con IA
-    try {
-      const { groqChat } = await import('./api.js');
-      const ultima = state.hist[state.hist.length - 1]?.content || '';
-      const prompt = `Eres NOVA, IA personal estilo JARVIS. Genera un saludo breve de ${momento} en español de España.
-${memFormateada ? 'Lo que sabes del usuario:\n' + memFormateada : ''}
-${state.mem ? 'Resumen: ' + state.mem.substring(0, 200) : ''}
-Último tema hablado: ${ultima.substring(0, 100)}
-Máximo 2 frases. Frío, preciso, personalizado. Sin saludos genéricos.`;
-
-      greeting = await groqChat([{role:'user',content:prompt}], 'openai/gpt-oss-20b', 80);
-    } catch (e) {
-      greeting = `Buenas ${momento}. Sistemas activos.`;
-    }
-  } else {
-    greeting = `Sistemas en línea. NOVA activo. Buenas ${momento}.`;
-  }
-
-  addMsg('nova', greeting);
-  state.hist.push({ role: 'assistant', content: greeting });
-  if (state.audioOn) { state.lastSpokenText = greeting; speak(greeting); }
-  saveMsg('assistant', greeting).catch(() => {});
+  // Briefing DESPUÉS de mostrar la pantalla
+  setTimeout(() => briefingAutomatico().catch(console.warn), 800);
 }
 
 initApp();

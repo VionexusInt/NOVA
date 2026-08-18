@@ -588,6 +588,156 @@ def accion():
 # ══════════════════════════════════════════
 # ARRANQUE
 # ══════════════════════════════════════════
+
+# ══════════════════════════════════════════
+# SISTEMA DE AUTO-MEJORA CON CONFIRMACIÓN
+# NOVA propone cambios → usuario aprueba → se aplican
+# ══════════════════════════════════════════
+
+import difflib
+
+NOVA_PROJECT_PATH = Path(__file__).parent
+pendientes_aprobacion = {}
+
+def leer_archivo(ruta_relativa):
+    ruta = NOVA_PROJECT_PATH / ruta_relativa
+    if not ruta.exists():
+        return None, f"Archivo no encontrado: {ruta}"
+    try:
+        return ruta.read_text(encoding='utf-8'), None
+    except Exception as e:
+        return None, str(e)
+
+def aplicar_patch(ruta_relativa, contenido_nuevo):
+    ruta = NOVA_PROJECT_PATH / ruta_relativa
+    ruta_backup = ruta.with_suffix(ruta.suffix + '.backup')
+    try:
+        if ruta.exists():
+            import shutil
+            shutil.copy2(ruta, ruta_backup)
+        ruta.write_text(contenido_nuevo, encoding='utf-8')
+        return True, str(ruta_backup) if ruta_backup.exists() else None
+    except Exception as e:
+        return False, str(e)
+
+def generar_diff(original, nuevo, nombre_archivo):
+    diff = list(difflib.unified_diff(
+        original.splitlines(keepends=True),
+        nuevo.splitlines(keepends=True),
+        fromfile=f'a/{nombre_archivo}',
+        tofile=f'b/{nombre_archivo}',
+        n=3
+    ))
+    return ''.join(diff[:80])
+
+@app.route('/api/mejora/proponer', methods=['POST'])
+def proponer_mejora():
+    data = request.get_json() or {}
+    archivo = data.get('archivo', '')
+    contenido_nuevo = data.get('contenido_nuevo', '')
+    descripcion = data.get('descripcion', '')
+    
+    if not archivo or not contenido_nuevo:
+        return jsonify({'ok': False, 'error': 'Falta archivo o contenido'}), 400
+    
+    contenido_actual, err = leer_archivo(archivo)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 404
+    
+    diff = generar_diff(contenido_actual or '', contenido_nuevo, archivo)
+    
+    import uuid
+    propuesta_id = str(uuid.uuid4())[:8]
+    pendientes_aprobacion[propuesta_id] = {
+        'archivo': archivo,
+        'contenido_nuevo': contenido_nuevo,
+        'descripcion': descripcion,
+        'ts': datetime.now().isoformat()
+    }
+    
+    print(f"📋 Propuesta de mejora [{propuesta_id}]: {descripcion}")
+    print(f"   Archivo: {archivo}")
+    
+    return jsonify({
+        'ok': True,
+        'propuesta_id': propuesta_id,
+        'descripcion': descripcion,
+        'archivo': archivo,
+        'diff': diff,
+        'lineas_cambiadas': len([l for l in diff.split('\n') if l.startswith(('+', '-')) and not l.startswith(('+++', '---'))])
+    })
+
+@app.route('/api/mejora/aprobar', methods=['POST'])
+def aprobar_mejora():
+    data = request.get_json() or {}
+    propuesta_id = data.get('propuesta_id', '')
+    
+    if propuesta_id not in pendientes_aprobacion:
+        return jsonify({'ok': False, 'error': 'Propuesta no encontrada o ya procesada'}), 404
+    
+    propuesta = pendientes_aprobacion.pop(propuesta_id)
+    ok, backup = aplicar_patch(propuesta['archivo'], propuesta['contenido_nuevo'])
+    
+    if ok:
+        print(f"✅ Mejora aplicada [{propuesta_id}]: {propuesta['descripcion']}")
+        print(f"   Backup: {backup}")
+        return jsonify({
+            'ok': True,
+            'mensaje': f"Mejora aplicada en {propuesta['archivo']}",
+            'backup': backup
+        })
+    else:
+        return jsonify({'ok': False, 'error': backup}), 500
+
+@app.route('/api/mejora/rechazar', methods=['POST'])
+def rechazar_mejora():
+    data = request.get_json() or {}
+    propuesta_id = data.get('propuesta_id', '')
+    
+    if propuesta_id in pendientes_aprobacion:
+        propuesta = pendientes_aprobacion.pop(propuesta_id)
+        print(f"❌ Mejora rechazada [{propuesta_id}]: {propuesta['descripcion']}")
+    
+    return jsonify({'ok': True, 'mensaje': 'Propuesta rechazada'})
+
+@app.route('/api/mejora/pendientes', methods=['GET'])
+def listar_pendientes():
+    return jsonify({
+        'ok': True,
+        'pendientes': [
+            {'id': k, 'archivo': v['archivo'], 'descripcion': v['descripcion'], 'ts': v['ts']}
+            for k, v in pendientes_aprobacion.items()
+        ]
+    })
+
+@app.route('/api/mejora/leer', methods=['POST'])
+def leer_archivo_endpoint():
+    data = request.get_json() or {}
+    archivo = data.get('archivo', '')
+    contenido, err = leer_archivo(archivo)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 404
+    return jsonify({'ok': True, 'contenido': contenido, 'archivo': archivo})
+
+@app.route('/api/mejora/revertir', methods=['POST'])
+def revertir_mejora():
+    data = request.get_json() or {}
+    archivo = data.get('archivo', '')
+    ruta = NOVA_PROJECT_PATH / archivo
+    ruta_backup = ruta.with_suffix(ruta.suffix + '.backup')
+    
+    if not ruta_backup.exists():
+        return jsonify({'ok': False, 'error': 'No hay backup disponible'}), 404
+    
+    try:
+        import shutil
+        shutil.copy2(ruta_backup, ruta)
+        print(f"⏪ Revertido: {archivo}")
+        return jsonify({'ok': True, 'mensaje': f"Revertido a backup de {archivo}"})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
     print("📦 Instalando dependencias opcionales...")

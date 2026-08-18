@@ -287,6 +287,7 @@ export function toggleModoConversacion() {
   if (modoConversacion) desactivarModoConversacion();
   else { stopWakeWord(); activarModoConversacion(); }
 }
+window._novaToggleModoConversacion = toggleModoConversacion;
 
 function startMic(initialText = '') {
   stopWakeWord();

@@ -1,39 +1,65 @@
-import { state } from './state.js';
+import { briefingAutomatico } from './briefing.js';
+import { setOrb, setTargetLevel } from './orb.js';
 import { addMsg } from './chat.js';
-import { speak } from './audio.js';
-import { generateBriefing } from './briefing.js';
-import { openPanel } from './paneles.js';
+
+let wakeMusic = null;
+let wakeActive = false;
 
 export async function activarModoDespertar() {
-  const hora = new Date().getHours();
-  const momento = hora < 12 ? 'mañana' : hora < 20 ? 'tarde' : 'noche';
+  if (wakeActive) return;
+  wakeActive = true;
 
-  const saludo = `Buen ${momento}, señor. Sistemas en línea. Iniciando protocolo de despertar.`;
-  addMsg('nova', saludo);
-  state.hist.push({ role: 'assistant', content: saludo });
-  state.lastSpokenText = saludo;
-  await speak(saludo);
+  setOrb('thinking');
+  setTargetLevel(0.8);
 
-  await new Promise(r => setTimeout(r, 800));
+  wakeMusic = new Audio('/wake.mp3');
+  wakeMusic.volume = 0;
+  wakeMusic.loop = false;
 
-  const estado = 'Núcleo estable. Memoria sincronizada. Módulos operativos.';
-  addMsg('nova', estado);
-  state.hist.push({ role: 'assistant', content: estado });
-  state.lastSpokenText = estado;
-  await speak(estado);
-
-  await new Promise(r => setTimeout(r, 800));
-
-  const briefingText = await generateBriefing();
-  if (briefingText) {
-    openPanel('briefing');
-    addMsg('nova', briefingText);
-    state.hist.push({ role: 'assistant', content: briefingText });
-    state.lastSpokenText = briefingText;
-    await speak(briefingText);
-  } else {
-    addMsg('nova', 'No he podido generar el briefing.');
-    state.lastSpokenText = 'No he podido generar el briefing.';
-    await speak(state.lastSpokenText);
+  try {
+    await wakeMusic.play();
+  } catch (e) {
+    console.warn('No se pudo reproducir wake.mp3:', e);
   }
+
+  fadeIn(wakeMusic, 0.55, 1500);
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  addMsg('nova', '// SISTEMAS ACTIVOS — INICIANDO BRIEFING //');
+
+  await briefingAutomatico();
+
+  fadeOut(wakeMusic, 2000, () => {
+    wakeMusic.pause();
+    wakeMusic = null;
+    wakeActive = false;
+    setOrb('idle');
+    setTargetLevel(0);
+  });
+}
+
+function fadeIn(audio, targetVol, ms) {
+  const steps = 30;
+  const interval = ms / steps;
+  const increment = targetVol / steps;
+  let vol = 0;
+  const timer = setInterval(() => {
+    vol = Math.min(vol + increment, targetVol);
+    audio.volume = vol;
+    if (vol >= targetVol) clearInterval(timer);
+  }, interval);
+}
+
+function fadeOut(audio, ms, cb) {
+  const steps = 30;
+  const interval = ms / steps;
+  const decrement = audio.volume / steps;
+  const timer = setInterval(() => {
+    audio.volume = Math.max(audio.volume - decrement, 0);
+    if (audio.volume <= 0) {
+      clearInterval(timer);
+      if (cb) cb();
+    }
+  }, interval);
 }
