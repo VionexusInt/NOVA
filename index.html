@@ -22,6 +22,8 @@
 
 <!-- APP -->
 <div class="app">
+
+  <!-- HEADER -->
   <header>
     <div>
       <div class="logo">NOV<em>A</em></div>
@@ -34,9 +36,8 @@
     </div>
   </header>
 
-  <div class="div"></div>
-
-  <div class="center">
+  <!-- ORB COLUMN -->
+  <div class="orb-col">
     <div class="orb-wrap">
       <div class="ring r1"></div>
       <div class="ring r2"></div>
@@ -53,6 +54,32 @@
       <div class="qa-btn" id="qaMarketing">🎯 MARKETING</div>
     </div>
 
+    <!-- Mini system status -->
+    <div class="status-mini" id="statusMini" style="opacity:0;transition:opacity .5s;">
+      <div class="status-item">
+        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">CPU</div>
+        <div class="status-bar"><div class="status-fill" id="cpuBar" style="width:0%"></div></div>
+        <div id="cpuVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+      </div>
+      <div class="status-item">
+        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">RAM</div>
+        <div class="status-bar"><div class="status-fill" id="ramBar" style="width:0%"></div></div>
+        <div id="ramVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+      </div>
+      <div class="status-item" id="batItem" style="display:none">
+        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">BAT</div>
+        <div class="status-bar"><div class="status-fill" id="batBar" style="width:0%"></div></div>
+        <div id="batVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT COLUMN -->
+  <div class="chat-col">
+    <div class="chat-header">
+      <div class="chat-header-title">// COMM LOG</div>
+      <div class="chat-header-badge" id="agentBadge" style="display:none">⚡ AGENTE ACTIVO</div>
+    </div>
     <div class="chat-area">
       <div class="comm-log" id="display">
         <div class="empty" id="ph">// CARGANDO... //</div>
@@ -60,19 +87,23 @@
     </div>
   </div>
 
-  <div class="div"></div>
+  <!-- DIVIDER -->
+  <div class="div2"></div>
 
-  <div class="input-bar">
+  <!-- INPUT BAR -->
+  <div class="input-section">
     <button class="btn-mic" id="micBtn">🎙️</button>
-    <input class="inp" type="text" id="txtIn" placeholder="Habla con NOVA o pide abrir tareas, email, agenda...">
+    <input class="inp" type="text" id="txtIn" placeholder='Di "Ey Nova" o escribe aquí...'>
     <button class="btn-send" id="btnSend">ENVIAR</button>
   </div>
 
+  <!-- FOOTER -->
   <footer>
     <span>N.O.V.A v3.0</span>
     <span id="sesId">SES---------</span>
     <span class="clr" id="btnReset">[ RESET ]</span>
   </footer>
+
 </div>
 
 <!-- FLOATING PANELS -->
@@ -85,7 +116,7 @@
       <div class="fp-close" data-panel="tasks">✕ CERRAR</div>
     </div>
     <div class="fp-body">
-      <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
         <input class="fi" type="text" id="taskIn" placeholder="Nueva tarea..." style="flex:1;">
         <select class="fi-sel" id="taskPri" style="width:auto;">
           <option value="u">🔴 URGENTE</option>
@@ -128,7 +159,7 @@
         <textarea class="fi-ta" id="eBody" placeholder="Describe brevemente el mensaje..."></textarea>
       </div>
       <button class="action-btn full" id="btnGenEmail">⚡ GENERAR EMAIL</button>
-      <div style="margin-top:14px;position:relative;">
+      <div style="margin-top:16px;position:relative;">
         <div class="result-box" id="eResult"><span class="result-placeholder">// El email aparecerá aquí //</span></div>
         <button class="copy-btn" id="copyBtnEmail">COPIAR</button>
       </div>
@@ -145,12 +176,12 @@
     </div>
     <div class="fp-body">
       <div class="brief-grid">
-        <div class="brief-card"><div class="bc-title">HORA</div><div class="bc-big" id="bTime">--:--</div></div>
+        <div class="brief-card"><div class="bc-title">HORA ACTUAL</div><div class="bc-big" id="bTime">--:--</div></div>
         <div class="brief-card"><div class="bc-title">TAREAS PENDIENTES</div><div class="bc-val" id="bTasks">—</div></div>
         <div class="brief-card brief-span"><div class="bc-title">RESUMEN INTELIGENTE</div><div class="bc-val" id="bSummary">Pulsa Generar para obtener tu briefing personalizado.</div></div>
         <div class="brief-card brief-span"><div class="bc-title">CONTEXTO DEL DÍA</div><div class="bc-val" id="bCtx">—</div></div>
       </div>
-      <button class="action-btn full" id="btnGenBriefing" style="margin-top:12px;">⚡ GENERAR BRIEFING</button>
+      <button class="action-btn full" id="btnGenBriefing" style="margin-top:14px;">⚡ GENERAR BRIEFING</button>
     </div>
   </div>
 </div>
@@ -163,8 +194,8 @@
       <div class="fp-close" data-panel="calendar">✕ CERRAR</div>
     </div>
     <div class="fp-body">
-      <div id="calSetup" style="display:flex;flex-direction:column;gap:12px;align-items:center;padding:20px 0;text-align:center;">
-        <p style="color:var(--muted);font-size:13px;line-height:1.7;max-width:400px;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
+      <div id="calSetup" style="display:flex;flex-direction:column;gap:14px;align-items:center;padding:24px 0;text-align:center;">
+        <p style="color:var(--muted);font-size:13px;line-height:1.8;max-width:400px;">Conecta tu Google Calendar para ver tus próximos eventos directamente desde NOVA.</p>
         <button class="action-btn" id="btnConnectCal" style="border-color:var(--green);color:var(--green);">CONECTAR GOOGLE CALENDAR</button>
       </div>
       <div id="calEvents" style="display:none;"></div>
@@ -190,10 +221,10 @@
       </div>
       <div class="field">
         <div class="label">DESCRIBE TU NEGOCIO / OBJETIVO</div>
-        <textarea class="fi-ta" id="mktIn" placeholder="Ej: Tienda online de ropa sostenible..." style="min-height:100px;"></textarea>
+        <textarea class="fi-ta" id="mktIn" placeholder="Ej: Tienda online de ropa sostenible, quiero aumentar ventas un 30%..." style="min-height:100px;"></textarea>
       </div>
       <button class="action-btn full" id="btnGenMarketing">⚡ GENERAR ESTRATEGIA</button>
-      <div style="margin-top:12px;position:relative;">
+      <div style="margin-top:14px;position:relative;">
         <div class="result-box" id="mktResult" style="min-height:120px;"><span class="result-placeholder">// La estrategia aparecerá aquí //</span></div>
         <button class="copy-btn" id="copyBtnMarketing">COPIAR</button>
       </div>
@@ -202,5 +233,32 @@
 </div>
 
 <script type="module" src="js/init.js"></script>
+
+<script>
+// Mini system status updater (si el agente está activo)
+async function updateStatus() {
+  try {
+    const r = await fetch('http://localhost:4000/api/sistema', {signal: AbortSignal.timeout(2000)});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+    document.getElementById('statusMini').style.opacity = '1';
+    document.getElementById('cpuBar').style.width = d.cpu + '%';
+    document.getElementById('cpuVal').textContent = d.cpu + '%';
+    document.getElementById('ramBar').style.width = d.ram_pct + '%';
+    document.getElementById('ramVal').textContent = d.ram_usada + 'G';
+    if (d.bateria !== null) {
+      document.getElementById('batItem').style.display = 'flex';
+      document.getElementById('batBar').style.width = d.bateria + '%';
+      document.getElementById('batVal').textContent = d.bateria + '%';
+    }
+    const badge = document.getElementById('agentBadge');
+    if (badge) badge.style.display = 'block';
+  } catch(e) {}
+}
+setInterval(updateStatus, 8000);
+setTimeout(updateStatus, 3000);
+</script>
+
 </body>
 </html>
