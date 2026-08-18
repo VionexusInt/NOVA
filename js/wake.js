@@ -28,8 +28,8 @@ export async function activarModoDespertar() {
   await new Promise(r => setTimeout(r, 2000));
 
   addMsg('nova', '// SISTEMAS ACTIVOS — INICIANDO BRIEFING //');
-
-  await briefingAutomatico();
+  briefingAutomatico();
+  await new Promise(r => setTimeout(r, 25000));
 
   const esperarAudio = setInterval(() => {
     if (!window._novaHablando) {

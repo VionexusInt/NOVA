@@ -8,34 +8,53 @@
 </head>
 <body>
 
+<!-- Cursor personalizado -->
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<!-- Nebulosa de fondo -->
+<div class="nebula">
+  <div class="nebula-layer n1"></div>
+  <div class="nebula-layer n2"></div>
+  <div class="nebula-layer n3"></div>
+  <div class="nebula-layer n4"></div>
+</div>
+
+<!-- Grain -->
+<div class="grain"></div>
+
+<!-- Loading -->
 <div class="loading" id="loading">
-  <div class="ld-logo">NOV<em>A</em></div>
+  <div class="ld-logo">NOVA</div>
   <div class="ld-bar"><div class="ld-inner"></div></div>
-  <div class="ld-txt" id="ldTxt">INICIALIZANDO</div>
+  <div class="ld-txt" id="ldTxt">inicializando</div>
 </div>
 
 <div class="app">
 
-  <header>
-    <div>
-      <div class="logo">NOV<em>A</em></div>
-      <div class="tagline">Sistema Autónomo de Inteligencia</div>
-    </div>
-    <div class="header-right">
-      <div class="status-pill">
-        <div class="status-dot"></div>
-        <span>ACTIVO</span>
-      </div>
-      <div class="clock-block">
-        <div id="clock">--:--:--</div>
-        <div id="dateD">-- --- ----</div>
-      </div>
-    </div>
-  </header>
-
+  <!-- ENTIDAD -->
   <div class="entity-col">
+
+    <div class="float-header">
+      <div class="logo-text">NOVA</div>
+      <div class="logo-sub">sistema autónomo de inteligencia</div>
+    </div>
+
+    <div class="float-status">
+      <div class="status-row">
+        <div class="status-dot"></div>
+        <span>activo</span>
+      </div>
+      <div class="status-row" style="gap:5px;">
+        <span id="clock" style="font-size:10px;letter-spacing:0.1em;">--:--:--</span>
+      </div>
+      <div class="status-row">
+        <span id="dateD" style="font-size:8px;letter-spacing:0.2em;opacity:0.6;">-- --- ----</span>
+      </div>
+    </div>
+
     <canvas id="novaCanvas"></canvas>
-    <div class="entity-state" id="orbLbl">EN ESPERA</div>
+    <div class="entity-state" id="orbLbl">en espera</div>
 
     <div class="quick-actions">
       <div class="qa-btn" id="qaTasks">tareas</div>
@@ -46,52 +65,55 @@
       <div class="qa-btn" id="qaMemoria">memoria</div>
     </div>
 
-    <div class="status-mini" id="statusMini" style="opacity:0;transition:opacity .8s;">
+    <div class="status-mini" id="statusMini">
       <div class="status-item">
-        <span>CPU</span>
+        <span>cpu</span>
         <div class="status-bar"><div class="status-fill" id="cpuBar" style="width:0%"></div></div>
         <span id="cpuVal">—</span>
       </div>
       <div class="status-item">
-        <span>RAM</span>
+        <span>ram</span>
         <div class="status-bar"><div class="status-fill" id="ramBar" style="width:0%"></div></div>
         <span id="ramVal">—</span>
       </div>
       <div class="status-item" id="batItem" style="display:none">
-        <span>BAT</span>
+        <span>bat</span>
         <div class="status-bar"><div class="status-fill" id="batBar" style="width:0%"></div></div>
         <span id="batVal">—</span>
       </div>
     </div>
+
   </div>
 
+  <!-- CHAT -->
   <div class="chat-col">
     <div class="chat-header">
-      <div class="chat-header-label">conversación</div>
+      <div class="chat-label">conversación</div>
       <div class="agent-badge" id="agentBadge">agente activo</div>
     </div>
     <div class="comm-log" id="display">
-      <div class="empty" id="ph">inicializando</div>
+      <div class="empty" id="ph">esperando</div>
     </div>
   </div>
 
+  <!-- INPUT -->
   <div class="input-bar-wrap">
-    <button class="btn-mic" id="micBtn">⬤</button>
-    <input class="inp" type="text" id="txtIn" placeholder="habla con nova">
+    <button class="btn-mic" id="micBtn">●</button>
+    <input class="inp" type="text" id="txtIn" placeholder="dime algo...">
     <button class="btn-send" id="btnSend">→</button>
   </div>
 
 </div>
 
-<!-- PANELS -->
+<!-- PANELES -->
 <div class="overlay" id="ov-tasks">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">Gestión de Tareas</div>
+      <div class="fp-title">Gestión de tareas</div>
       <div class="fp-close" data-panel="tasks">cerrar</div>
     </div>
     <div class="fp-body">
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <div style="display:flex;gap:8px;margin-bottom:18px;">
         <input class="fi" type="text" id="taskIn" placeholder="nueva tarea" style="flex:1;">
         <select class="fi-sel" id="taskPri" style="width:auto;">
           <option value="u">urgente</option>
@@ -108,13 +130,13 @@
 <div class="overlay" id="ov-email">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">Redactor de Emails</div>
+      <div class="fp-title">Redactor de emails</div>
       <div class="fp-close" data-panel="email">cerrar</div>
     </div>
     <div class="fp-body">
       <div class="row-fields">
         <div class="field"><div class="label">Para</div><input class="fi" type="text" id="eTo" placeholder="email@empresa.com"></div>
-        <div class="field"><div class="label">Asunto</div><input class="fi" type="text" id="eSubj" placeholder="asunto"></div>
+        <div class="field"><div class="label">Asunto</div><input class="fi" type="text" id="eSubj" placeholder="asunto del email"></div>
       </div>
       <div class="field">
         <div class="label">Tono</div>
@@ -130,10 +152,10 @@
       </div>
       <div class="field">
         <div class="label">Mensaje</div>
-        <textarea class="fi-ta" id="eBody" placeholder="describe qué quieres comunicar"></textarea>
+        <textarea class="fi-ta" id="eBody" placeholder="describe lo que quieres comunicar..."></textarea>
       </div>
       <button class="action-btn full" id="btnGenEmail">generar email</button>
-      <div style="margin-top:16px;position:relative;">
+      <div style="margin-top:18px;position:relative;">
         <div class="result-box" id="eResult"><span class="result-placeholder">el email aparecerá aquí</span></div>
         <button class="copy-btn" id="copyBtnEmail">copiar</button>
       </div>
@@ -142,19 +164,16 @@
 </div>
 
 <div class="overlay" id="ov-briefing">
-  <div class="fp">
+  <div class="fp" style="max-width:860px;">
     <div class="fp-header">
-      <div class="fp-title">Briefing Diario</div>
-      <div class="fp-close" data-panel="briefing">cerrar</div>
-    </div>
-    <div class="fp-body">
-      <div class="brief-grid">
-        <div class="brief-card"><div class="bc-title">Hora</div><div class="bc-big" id="bTime">--:--</div></div>
-        <div class="brief-card"><div class="bc-title">Tareas pendientes</div><div class="bc-val" id="bTasks">—</div></div>
-        <div class="brief-card brief-span"><div class="bc-title">Resumen inteligente</div><div class="bc-val" id="bSummary">Genera tu briefing personalizado.</div></div>
-        <div class="brief-card brief-span"><div class="bc-title">Contexto del día</div><div class="bc-val" id="bCtx">—</div></div>
+      <div class="fp-title">Briefing diario</div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <button class="action-btn" id="btnGenBriefing" style="padding:8px 16px;font-size:8px;">generar</button>
+        <div class="fp-close" data-panel="briefing">cerrar</div>
       </div>
-      <button class="action-btn full" id="btnGenBriefing" style="margin-top:14px;">generar briefing</button>
+    </div>
+    <div class="fp-body" id="briefingPanel">
+      <div class="brief-empty">Pulsa <em>generar</em> para obtener tu briefing personalizado.</div>
     </div>
   </div>
 </div>
@@ -166,9 +185,9 @@
       <div class="fp-close" data-panel="calendar">cerrar</div>
     </div>
     <div class="fp-body">
-      <div id="calSetup" style="display:flex;flex-direction:column;gap:14px;align-items:center;padding:24px 0;text-align:center;">
-        <p style="color:var(--text-mid);font-size:13px;line-height:1.8;max-width:400px;font-weight:300;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
-        <button class="action-btn" id="btnConnectCal">conectar google calendar</button>
+      <div id="calSetup" style="display:flex;flex-direction:column;gap:14px;align-items:center;padding:30px 0;text-align:center;">
+        <p style="color:var(--text-mid);font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:300;font-style:italic;line-height:1.8;max-width:380px;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
+        <button class="action-btn" id="btnConnectCal">conectar calendar</button>
       </div>
       <div id="calEvents" style="display:none;"></div>
     </div>
@@ -178,7 +197,7 @@
 <div class="overlay" id="ov-marketing">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">Estrategia de Marketing</div>
+      <div class="fp-title">Estrategia de marketing</div>
       <div class="fp-close" data-panel="marketing">cerrar</div>
     </div>
     <div class="fp-body">
@@ -192,7 +211,7 @@
       </div>
       <div class="field">
         <div class="label">Tu negocio / objetivo</div>
-        <textarea class="fi-ta" id="mktIn" placeholder="describe tu negocio o lo que quieres conseguir" style="min-height:100px;"></textarea>
+        <textarea class="fi-ta" id="mktIn" placeholder="describe tu negocio o lo que quieres conseguir..." style="min-height:100px;"></textarea>
       </div>
       <button class="action-btn full" id="btnGenMarketing">generar estrategia</button>
       <div style="margin-top:14px;position:relative;">
@@ -206,12 +225,47 @@
 <script type="module" src="js/init.js"></script>
 
 <script>
+// Cursor personalizado
+const cur = document.getElementById('cursor');
+const ring = document.getElementById('cursorRing');
+let mx = 0, my = 0, rx = 0, ry = 0;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cur.style.left = mx + 'px';
+  cur.style.top = my + 'px';
+});
+
+function animCursor() {
+  rx += (mx - rx) * 0.12;
+  ry += (my - ry) * 0.12;
+  ring.style.left = rx + 'px';
+  ring.style.top = ry + 'px';
+  requestAnimationFrame(animCursor);
+}
+animCursor();
+
+document.querySelectorAll('button, .qa-btn, .fp-close, .mkt-chip, .task-chk, .task-del, .mem-edit-btn, .mem-del-btn').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    cur.style.transform = 'translate(-50%,-50%) scale(2)';
+    ring.style.width = '48px';
+    ring.style.height = '48px';
+    ring.style.opacity = '0.5';
+  });
+  el.addEventListener('mouseleave', () => {
+    cur.style.transform = 'translate(-50%,-50%) scale(1)';
+    ring.style.width = '28px';
+    ring.style.height = '28px';
+    ring.style.opacity = '1';
+  });
+});
+
+// Sistema stats
 async function updateStatus() {
   try {
     const r = await fetch('http://localhost:4000/api/sistema',{signal:AbortSignal.timeout(2000)});
     if(!r.ok)return;
-    const d=await r.json();
-    if(d.error)return;
+    const d=await r.json();if(d.error)return;
     document.getElementById('statusMini').style.opacity='1';
     document.getElementById('cpuBar').style.width=d.cpu+'%';
     document.getElementById('cpuVal').textContent=d.cpu+'%';
@@ -224,6 +278,5 @@ async function updateStatus() {
 setInterval(updateStatus,10000);
 setTimeout(updateStatus,3000);
 </script>
-
 </body>
 </html>

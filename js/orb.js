@@ -1,19 +1,22 @@
-let canvas, ctx, W, H, cx, cy;
+let canvas, ctx, W, H, cx, cy, R;
 let orbState = 'idle';
 let targetLvl = 0;
 let audioLvl = 0;
 let time = 0;
-let animFrame = null;
 
-// Neural network nodes
-const NODES = 80;
-const CONNECTIONS = 120;
-let nodes = [];
-let connections = [];
+// Plasma particles
+const PARTICLES = 180;
+let particles = [];
 
-// Waveform data
-let waveData = new Array(64).fill(0);
-let waveTarget = new Array(64).fill(0);
+// Neural filaments
+const FILAMENTS = 24;
+let filaments = [];
+
+// Heartbeat data
+let heartbeatPhase = 0;
+let heartbeatStrength = 0;
+let nextBeat = 60;
+let beatCount = 0;
 
 function initCanvas() {
   canvas = document.getElementById('novaCanvas');
@@ -21,254 +24,370 @@ function initCanvas() {
   ctx = canvas.getContext('2d');
   resize();
   window.addEventListener('resize', resize);
-  initNodes();
-  draw();
+  initParticles();
+  initFilaments();
+  requestAnimationFrame(draw);
 }
 
 function resize() {
-  const size = canvas.clientWidth * window.devicePixelRatio;
-  canvas.width = size;
-  canvas.height = size;
-  W = canvas.width;
-  H = canvas.height;
-  cx = W / 2;
-  cy = H / 2;
-  initNodes();
+  const s = Math.min(window.innerWidth * 0.44, window.innerHeight * 0.65, 480);
+  canvas.style.width = s + 'px';
+  canvas.style.height = s + 'px';
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = s * dpr;
+  canvas.height = s * dpr;
+  W = canvas.width; H = canvas.height;
+  cx = W / 2; cy = H / 2;
+  R = W * 0.38;
+  ctx.scale(dpr, dpr);
+  initParticles();
+  initFilaments();
 }
 
-function initNodes() {
-  nodes = [];
-  connections = [];
-  const R = W * 0.42;
+function initParticles() {
+  particles = [];
+  const sw = canvas.clientWidth;
+  const sh = canvas.clientHeight;
+  const r = sw * 0.38;
+  const c2 = sw / 2;
 
-  for (let i = 0; i < NODES; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = R * (0.1 + Math.pow(Math.random(), 0.6) * 0.9);
-
-    nodes.push({
-      x: cx + r * Math.sin(phi) * Math.cos(theta),
-      y: cy + r * Math.sin(phi) * Math.sin(theta),
-      bx: cx + r * Math.sin(phi) * Math.cos(theta),
-      by: cy + r * Math.sin(phi) * Math.sin(theta),
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      r: r,
-      theta: theta,
-      phi: phi,
-      size: 0.8 + Math.random() * 2,
+  for (let i = 0; i < PARTICLES; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.pow(Math.random(), 0.5) * r * 0.92;
+    particles.push({
+      x: c2 + Math.cos(angle) * dist,
+      y: sh / 2 + Math.sin(angle) * dist,
+      bx: c2 + Math.cos(angle) * dist,
+      by: sh / 2 + Math.sin(angle) * dist,
+      angle, dist,
+      orbitSpd: (0.001 + Math.random() * 0.004) * (Math.random() > 0.5 ? 1 : -1),
+      size: 0.6 + Math.random() * 2.2,
+      bright: 0.1 + Math.random() * 0.6,
       pulse: Math.random() * Math.PI * 2,
-      pulseSpd: 0.01 + Math.random() * 0.03,
-      active: Math.random() > 0.6,
+      pulseSpd: 0.008 + Math.random() * 0.025,
       layer: Math.floor(Math.random() * 3),
       signal: 0,
-      signalSpd: 0,
+      trail: [],
+      trailLen: Math.floor(Math.random() * 8),
+    });
+  }
+}
+
+function initFilaments() {
+  filaments = [];
+  for (let i = 0; i < FILAMENTS; i++) {
+    filaments.push(createFilament(i));
+  }
+}
+
+function createFilament(i) {
+  const startAngle = (i / FILAMENTS) * Math.PI * 2 + Math.random() * 0.5;
+  const sw = canvas.clientWidth;
+  const r = sw * 0.38;
+  const c2 = sw / 2;
+  const ch = canvas.clientHeight / 2;
+
+  const pts = [];
+  const steps = 12 + Math.floor(Math.random() * 10);
+  const endR = r * (0.05 + Math.random() * 0.85);
+  const endAngle = startAngle + (Math.random() - 0.5) * Math.PI * 1.2;
+
+  for (let j = 0; j <= steps; j++) {
+    const t = j / steps;
+    const cr = endR * t;
+    const ca = startAngle + (endAngle - startAngle) * t;
+    const jitter = (1 - Math.pow(t - 0.5, 2) * 4) * r * 0.08;
+    pts.push({
+      x: c2 + Math.cos(ca) * cr + (Math.random() - 0.5) * jitter,
+      y: ch + Math.sin(ca) * cr + (Math.random() - 0.5) * jitter,
     });
   }
 
-  for (let i = 0; i < CONNECTIONS; i++) {
-    const a = Math.floor(Math.random() * NODES);
-    let b = Math.floor(Math.random() * NODES);
-    while (b === a) b = Math.floor(Math.random() * NODES);
-    const dist = Math.hypot(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y);
-    if (dist < W * 0.35) {
-      connections.push({ a, b, strength: Math.random(), signal: 0, signalPos: 0, active: false, cooldown: 0 });
-    }
-  }
+  return {
+    pts,
+    life: Math.random(),
+    maxLife: 0.6 + Math.random() * 0.8,
+    spd: 0.003 + Math.random() * 0.008,
+    bright: 0.2 + Math.random() * 0.5,
+    signal: 0,
+    signalPos: Math.random() > 0.7 ? 0 : -1,
+    signalActive: Math.random() > 0.7,
+  };
 }
 
-function getColors() {
+function getC() {
   switch (orbState) {
-    case 'listening': return { node: [232, 112, 112], conn: [232, 112, 112], wave: [232, 112, 112], center: [255, 140, 140] };
-    case 'thinking':  return { node: [200, 168, 130], conn: [200, 168, 130], wave: [200, 168, 130], center: [220, 190, 150] };
-    case 'speaking':  return { node: [168, 216, 176], conn: [168, 216, 176], wave: [168, 216, 176], center: [190, 230, 200] };
-    default:          return { node: [126, 184, 255], conn: [126, 184, 255], wave: [126, 184, 255], center: [160, 200, 255] };
+    case 'listening': return { r: [232, 100, 100], g: [255, 140, 120], a: [255, 80, 80] };
+    case 'thinking':  return { r: [200, 160, 90], g: [220, 185, 120], a: [180, 130, 60] };
+    case 'speaking':  return { r: [80, 200, 140], g: [120, 220, 170], a: [60, 180, 110] };
+    default:          return { r: [74, 158, 255], g: [120, 185, 255], a: [45, 120, 220] };
   }
 }
 
-function rgba(c, a) {
-  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-}
+function rgb(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
 function draw() {
-  animFrame = requestAnimationFrame(draw);
+  requestAnimationFrame(draw);
   if (!ctx) return;
 
-  ctx.clearRect(0, 0, W, H);
-  time += 0.008;
-  audioLvl += (targetLvl - audioLvl) * 0.05;
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+  time += 0.007;
+  audioLvl += (targetLvl - audioLvl) * 0.04;
   const e = audioLvl;
-  const C = getColors();
-  const R = W * 0.42;
+  const C = getC();
+  const sw = canvas.clientWidth;
+  const sh = canvas.clientHeight;
+  const r = sw * 0.38;
+  const c2 = sw / 2;
+  const ch = sh / 2;
 
-  // Update waveform
-  for (let i = 0; i < 64; i++) {
-    waveTarget[i] = (Math.sin(time * 2 + i * 0.3) * 0.3 + Math.random() * 0.2) * (0.3 + e * 0.7);
-    waveData[i] += (waveTarget[i] - waveData[i]) * 0.15;
+  // Heartbeat - smooth, no jolts
+  nextBeat--;
+  if (nextBeat <= 0) {
+    heartbeatStrength = 0.4 + e * 0.2;
+    heartbeatPhase = 0;
+    beatCount++;
+    nextBeat = 70 + Math.random() * 40;
   }
+  heartbeatPhase += 0.04;
+  const rawBeat = heartbeatStrength * Math.max(0, Math.exp(-heartbeatPhase * 0.8) * Math.sin(heartbeatPhase * 5));
+  const beat = rawBeat * 0.5;
+  heartbeatStrength = Math.max(0, heartbeatStrength - 0.008);
 
-  // ── DEEP AURA ──
-  const aura = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.4);
-  aura.addColorStop(0, rgba(C.center, 0.04 + e * 0.06));
-  aura.addColorStop(0.5, rgba(C.node, 0.02 + e * 0.03));
-  aura.addColorStop(1, 'rgba(0,0,0,0)');
+  const breathe = 1 + Math.sin(time * 0.5) * 0.015 + beat * 0.02 + e * 0.05;
+
+  // ── CORONA EXTERIOR ──
+  const corona = ctx.createRadialGradient(c2, ch, 0, c2, ch, r * 1.8);
+  corona.addColorStop(0, rgb(C.r, 0.02 + beat * 0.03 + e * 0.02));
+  corona.addColorStop(0.5, rgb(C.a, 0.01 + e * 0.01));
+  corona.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.beginPath();
-  ctx.arc(cx, cy, R * 1.4, 0, Math.PI * 2);
-  ctx.fillStyle = aura;
+  ctx.arc(c2, ch, r * 1.8, 0, Math.PI * 2);
+  ctx.fillStyle = corona;
   ctx.fill();
 
-  // ── BREATHING BOUNDARY ──
-  const breathe = 1 + Math.sin(time * 0.7) * 0.02;
-  for (let ring = 3; ring >= 0; ring--) {
-    const rr = R * breathe * (0.85 + ring * 0.05);
-    const alpha = (0.03 - ring * 0.006) + e * 0.02;
+  // ── ONDAS ORGÁNICAS ──
+  const waveCount = orbState === 'speaking' ? 6 : orbState === 'listening' ? 5 : 4;
+  for (let w = 0; w < waveCount; w++) {
+    const wr = r * breathe * (0.88 + w * 0.04);
+    const wAlpha = (0.06 - w * 0.008) + beat * 0.06 + e * 0.05;
+
     ctx.beginPath();
-    for (let i = 0; i <= 100; i++) {
-      const a = (i / 100) * Math.PI * 2;
-      const noise = Math.sin(a * 5 + time + ring) * R * 0.018 * (1 + e * 2)
-                  + Math.sin(a * 11 - time * 1.3 + ring) * R * 0.008;
-      const px = cx + Math.cos(a) * (rr + noise);
-      const py = cy + Math.sin(a) * (rr + noise);
+    for (let i = 0; i <= 120; i++) {
+      const a = (i / 120) * Math.PI * 2;
+      const n1 = Math.sin(a * 3 + time * 1.8 + w * 0.7) * r * (0.015 + e * 0.04 + beat * 0.02);
+      const n2 = Math.sin(a * 7 - time * 2.5 + w * 1.2) * r * (0.01 + e * 0.025);
+      const n3 = Math.sin(a * 13 + time * 3.8 + w) * r * (0.006 + e * 0.015);
+      const rr = wr + n1 + n2 + n3;
+      const px = c2 + Math.cos(a) * rr;
+      const py = ch + Math.sin(a) * rr;
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.strokeStyle = rgba(C.node, alpha);
-    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = w === 0 ? rgb(C.g, wAlpha * 1.5) : rgb(C.r, wAlpha);
+    ctx.lineWidth = w === 0 ? 1.2 : 0.6;
     ctx.stroke();
   }
 
-  // ── WAVEFORM RING ──
-  if (orbState !== 'idle' || e > 0.05) {
-    ctx.beginPath();
-    for (let i = 0; i <= 64; i++) {
-      const a = (i / 64) * Math.PI * 2 - Math.PI / 2;
-      const wIdx = i % 64;
-      const wave = waveData[wIdx] * R * 0.18;
-      const rr2 = R * 0.88 * breathe;
-      const px = cx + Math.cos(a) * (rr2 + wave);
-      const py = cy + Math.sin(a) * (rr2 + wave);
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  // ── FILAMENTOS ──
+  filaments.forEach((f, fi) => {
+    f.life += f.spd * (1 + e * 0.5);
+    if (f.life > f.maxLife) {
+      filaments[fi] = createFilament(fi);
+      return;
     }
-    ctx.closePath();
-    ctx.strokeStyle = rgba(C.wave, 0.2 + e * 0.3);
-    ctx.lineWidth = 1;
+
+    const la = Math.sin((f.life / f.maxLife) * Math.PI) * f.bright;
+
+    if (f.pts.length < 2) return;
+
+    ctx.beginPath();
+    ctx.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
+
+    ctx.strokeStyle = rgb(C.r, la * 0.06);
+    ctx.lineWidth = 3;
     ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
+    ctx.strokeStyle = rgb(C.g, la * 0.2);
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
+    // Signal traveling the filament
+    if (f.signalActive) {
+      f.signalPos += 0.035 * (1 + e);
+      if (f.signalPos > 1) {
+        f.signalPos = -1;
+        f.signalActive = Math.random() > 0.4;
+      }
+      if (f.signalPos >= 0) {
+        const idx = Math.floor(f.signalPos * (f.pts.length - 1));
+        const pt = f.pts[Math.min(idx, f.pts.length - 1)];
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 2 + e * 2, 0, Math.PI * 2);
+        ctx.fillStyle = rgb(C.g, 0.7 + beat * 0.3);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 5 + e * 4, 0, Math.PI * 2);
+        ctx.fillStyle = rgb(C.g, 0.1);
+        ctx.fill();
+      }
+    } else if (Math.random() < 0.003 * (1 + e * 4 + beat * 3)) {
+      f.signalActive = true;
+      f.signalPos = 0;
+    }
+  });
+
+  // ── CLIP — interior de la esfera ──
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const a = (i / 120) * Math.PI * 2;
+    const n = Math.sin(a * 4 + time * 2) * r * 0.012 * (1 + e * 2 + beat);
+    const rr = r * breathe + n;
+    const px = c2 + Math.cos(a) * rr;
+    const py = ch + Math.sin(a) * rr;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
   }
+  ctx.closePath();
+  ctx.clip();
 
-  // ── UPDATE NODES ──
-  nodes.forEach((n, i) => {
-    n.pulse += n.pulseSpd * (1 + e);
-    // Slow organic drift
-    n.theta += 0.001 * (i % 2 === 0 ? 1 : -1) * (1 + e * 0.5);
-    n.phi += 0.0008 * Math.sin(time + i) * (1 + e * 0.3);
-    const r = n.r * (1 + Math.sin(time * 0.5 + i) * 0.02 + e * 0.08);
-    n.x = cx + r * Math.sin(n.phi) * Math.cos(n.theta);
-    n.y = cy + r * Math.sin(n.phi) * Math.sin(n.theta);
+  // Fondo interior
+  const innerBg = ctx.createRadialGradient(c2, ch, 0, c2, ch, r);
+  innerBg.addColorStop(0, `rgba(0,1,4,1)`);
+  innerBg.addColorStop(0.7, `rgba(0,2,8,1)`);
+  innerBg.addColorStop(1, rgb(C.a, 0.08 + beat * 0.05));
+  ctx.fillStyle = innerBg;
+  ctx.fillRect(0, 0, sw, sh);
 
-    // Signal propagation
-    if (n.signal > 0) {
-      n.signal -= 0.03;
-      if (n.signal < 0) n.signal = 0;
-    }
+  // ── PARTÍCULAS DE PLASMA ──
+  particles.forEach(p => {
+    p.angle += p.orbitSpd * (1 + e * 0.6 + beat * 0.3);
+    p.pulse += p.pulseSpd;
 
-    // Random activations
-    if (Math.random() < 0.001 * (1 + e * 5)) {
-      n.signal = 1;
-    }
-  });
+    const distMod = p.dist * (1 + Math.sin(time * 0.4 + p.angle * 2) * 0.04 + beat * 0.03);
+    p.x = c2 + Math.cos(p.angle) * distMod;
+    p.y = ch + Math.sin(p.angle) * distMod;
 
-  // ── CONNECTIONS ──
-  connections.forEach(conn => {
-    const na = nodes[conn.a];
-    const nb = nodes[conn.b];
-    const dist = Math.hypot(na.x - nb.x, na.y - nb.y);
+    p.trail.unshift({ x: p.x, y: p.y });
+    if (p.trail.length > p.trailLen) p.trail.pop();
 
-    if (dist > W * 0.38) return;
+    const pAlpha = (0.08 + Math.sin(p.pulse) * 0.5 * p.bright + p.signal * 0.4 + e * 0.15) * (p.layer === 2 ? 1 : p.layer === 1 ? 0.7 : 0.4);
+    const pSize = p.size * (1 + p.signal * 0.6 + beat * 0.3 + e * 0.2);
 
-    const baseAlpha = (1 - dist / (W * 0.38)) * 0.06 * conn.strength;
-    const signalBoost = (na.signal + nb.signal) * 0.15;
-
-    // Base connection line
-    ctx.beginPath();
-    ctx.moveTo(na.x, na.y);
-    ctx.lineTo(nb.x, nb.y);
-    ctx.strokeStyle = rgba(C.conn, baseAlpha + signalBoost + e * 0.05);
-    ctx.lineWidth = 0.5 + signalBoost * 2;
-    ctx.stroke();
-
-    // Signal pulse traveling along connection
-    if (conn.active) {
-      conn.signalPos += 0.04 * (1 + e);
-      if (conn.signalPos >= 1) {
-        conn.active = false;
-        conn.signalPos = 0;
-        conn.cooldown = 30 + Math.random() * 60;
-        nodes[conn.b].signal = Math.min(1, nodes[conn.b].signal + 0.5);
-      }
-      const px = na.x + (nb.x - na.x) * conn.signalPos;
-      const py = na.y + (nb.y - na.y) * conn.signalPos;
+    // Trail
+    p.trail.forEach((tp, ti) => {
+      const ta = pAlpha * (1 - ti / p.trail.length) * 0.35;
       ctx.beginPath();
-      ctx.arc(px, py, 2 + e * 2, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(C.center, 0.7 + e * 0.3);
+      ctx.arc(tp.x, tp.y, pSize * (1 - ti / p.trail.length) * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(C.r, ta);
       ctx.fill();
-      ctx.beginPath();
-      ctx.arc(px, py, 5 + e * 4, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(C.center, 0.15);
-      ctx.fill();
-    } else {
-      if (conn.cooldown > 0) conn.cooldown--;
-      else if (na.signal > 0.3 && Math.random() < 0.02 * (1 + e * 3)) {
-        conn.active = true;
-        conn.signalPos = 0;
-      }
-    }
-  });
+    });
 
-  // ── NODES ──
-  nodes.forEach((n, i) => {
-    const pulseFactor = 0.5 + Math.sin(n.pulse) * 0.5;
-    const isActive = n.signal > 0.1;
-    const alpha = (0.15 + pulseFactor * 0.2 + n.signal * 0.5 + e * 0.2) * (n.layer === 0 ? 0.6 : n.layer === 1 ? 0.85 : 1);
-    const size = n.size * (1 + n.signal * 0.8 + e * 0.3) * (n.layer === 2 ? 1.3 : 1);
-
-    if (isActive) {
+    // Particle
+    if (p.signal > 0.3 || p.layer === 2) {
       ctx.beginPath();
-      ctx.arc(n.x, n.y, size * 4, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(C.node, n.signal * 0.08);
+      ctx.arc(p.x, p.y, pSize * 3, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(C.g, pAlpha * 0.08);
       ctx.fill();
     }
 
     ctx.beginPath();
-    ctx.arc(n.x, n.y, size, 0, Math.PI * 2);
-    ctx.fillStyle = rgba(C.node, alpha);
+    ctx.arc(p.x, p.y, pSize, 0, Math.PI * 2);
+    ctx.fillStyle = p.signal > 0.5 ? rgb([255, 255, 255], pAlpha * 0.9) : rgb(C.g, pAlpha);
     ctx.fill();
+
+    p.signal = Math.max(0, p.signal - 0.025);
+    if (Math.random() < 0.001 * (1 + e * 4 + beat * 5)) p.signal = 1;
   });
 
-  // ── CENTER CORE ──
-  const coreR = W * 0.06 * breathe * (1 + e * 0.15);
-  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 3);
-  coreGrad.addColorStop(0, rgba(C.center, 0.12 + e * 0.1));
-  coreGrad.addColorStop(0.5, rgba(C.node, 0.04 + e * 0.04));
-  coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.beginPath();
-  ctx.arc(cx, cy, coreR * 3, 0, Math.PI * 2);
-  ctx.fillStyle = coreGrad;
-  ctx.fill();
+  // ── GRADIENTE DE PROFUNDIDAD ──
+  const depth = ctx.createRadialGradient(c2, ch, 0, c2, ch, r);
+  depth.addColorStop(0, rgb(C.a, 0));
+  depth.addColorStop(0.6, rgb(C.r, 0.02 + e * 0.02));
+  depth.addColorStop(0.88, rgb(C.r, 0.06 + beat * 0.04 + e * 0.04));
+  depth.addColorStop(1, rgb(C.a, 0.18 + beat * 0.08 + e * 0.08));
+  ctx.fillStyle = depth;
+  ctx.fillRect(0, 0, sw, sh);
 
-  // Center point
+  ctx.restore();
+
+  // ── ANILLO EXTERIOR BRILLANTE ──
+  ctx.save();
+  for (let ring = 0; ring < 3; ring++) {
+    const rr = r * breathe * (1 + ring * 0.01);
+    const ra = (0.08 - ring * 0.02) + beat * 0.06 + e * 0.04;
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const a = (i / 120) * Math.PI * 2;
+      const n = Math.sin(a * 4 + time * 2) * r * 0.012 * (1 + e * 2 + beat);
+      const px = c2 + Math.cos(a) * (rr + n);
+      const py = ch + Math.sin(a) * (rr + n);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = ring === 0 ? rgb([255, 255, 255], ra * 0.5) : rgb(C.g, ra);
+    ctx.lineWidth = ring === 0 ? 1.2 : 0.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ── NÚCLEO ── 
+  const coreR = sw * 0.055 * (1 + beat * 0.15 + e * 0.08) * breathe;
+  for (let l = 4; l >= 0; l--) {
+    const lr = coreR * (1 + l * 0.7);
+    const la = l === 0 ? 0.9 : (0.08 - l * 0.012 + e * 0.05 + beat * 0.04);
+    const cg = ctx.createRadialGradient(c2, ch, 0, c2, ch, lr);
+    if (l === 0) {
+      cg.addColorStop(0, `rgba(255,255,255,1)`);
+      cg.addColorStop(0.3, rgb(C.g, 0.95));
+      cg.addColorStop(1, 'rgba(0,0,0,0)');
+    } else {
+      cg.addColorStop(0, rgb(C.g, la));
+      cg.addColorStop(0.5, rgb(C.r, la * 0.5));
+      cg.addColorStop(1, 'rgba(0,0,0,0)');
+    }
+    ctx.beginPath();
+    ctx.arc(c2, ch, lr, 0, Math.PI * 2);
+    ctx.fillStyle = cg;
+    ctx.fill();
+  }
+
+  // ── REFLEJO ESPECULAR ──
+  const spec = ctx.createRadialGradient(
+    c2 - r * 0.25, ch - r * 0.3, 0,
+    c2 - r * 0.08, ch - r * 0.08, r * 0.55
+  );
+  spec.addColorStop(0, 'rgba(255,255,255,0.18)');
+  spec.addColorStop(0.4, 'rgba(255,255,255,0.04)');
+  spec.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.beginPath();
-  ctx.arc(cx, cy, 2.5 + e * 2, 0, Math.PI * 2);
-  ctx.fillStyle = rgba(C.center, 0.6 + e * 0.4);
+  for (let i = 0; i <= 120; i++) {
+    const a = (i / 120) * Math.PI * 2;
+    const n = Math.sin(a * 4 + time * 2) * r * 0.012;
+    const rr = r * breathe + n;
+    const px = c2 + Math.cos(a) * rr, py = ch + Math.sin(a) * rr;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = spec;
   ctx.fill();
 }
 
 export function setOrb(s) {
   orbState = s;
-  const labels = { idle: 'EN ESPERA', listening: 'ESCUCHANDO', thinking: 'PROCESANDO', speaking: 'RESPONDIENDO' };
+  const labels = { idle: 'en espera', listening: 'escuchando', thinking: 'procesando', speaking: 'respondiendo' };
   const el = document.getElementById('orbLbl');
-  if (el) el.textContent = labels[s] || 'EN ESPERA';
-  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.4);
-  else { setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1000); }
+  if (el) {
+    el.textContent = labels[s] || 'en espera';
+    el.className = 'entity-state' + (s !== 'idle' ? ' active' : '');
+  }
+  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.45);
+  else setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1500);
 }
 
 export function setTargetLevel(v) {

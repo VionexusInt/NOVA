@@ -116,6 +116,7 @@ export async function askNova(text) {
   if (!text || typeof text !== 'string' || !text.trim()) return;
   const cleanText = text.trim();
   const txtLow = cleanText.toLowerCase();
+  
 
   if (/^despierta$/i.test(cleanText) || /^wake up$/i.test(cleanText)) {
     if (window._novaDespertar) { window._novaDespertar(); return; }
