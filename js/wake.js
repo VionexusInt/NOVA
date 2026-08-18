@@ -1,72 +1,39 @@
-import { setOrb, setTargetLevel } from './orb.js';
+import { state } from './state.js';
 import { addMsg } from './chat.js';
-import { briefingAutomatico } from './briefing.js';
-
-let wakeMusic = null;
-let wakeActive = false;
+import { speak } from './audio.js';
+import { generateBriefing } from './briefing.js';
+import { openPanel } from './paneles.js';
 
 export async function activarModoDespertar() {
-  if (wakeActive) return;
-  wakeActive = true;
+  const hora = new Date().getHours();
+  const momento = hora < 12 ? 'mañana' : hora < 20 ? 'tarde' : 'noche';
 
-  setOrb('thinking');
-  setTargetLevel(0.8);
+  const saludo = `Buen ${momento}, señor. Sistemas en línea. Iniciando protocolo de despertar.`;
+  addMsg('nova', saludo);
+  state.hist.push({ role: 'assistant', content: saludo });
+  state.lastSpokenText = saludo;
+  await speak(saludo);
 
-  wakeMusic = new Audio('/wake.mp3');
-  wakeMusic.volume = 0;
-  wakeMusic.loop = false;
+  await new Promise(r => setTimeout(r, 800));
 
-  try {
-    await wakeMusic.play();
-  } catch (e) {
-    console.error(e);
+  const estado = 'Núcleo estable. Memoria sincronizada. Módulos operativos.';
+  addMsg('nova', estado);
+  state.hist.push({ role: 'assistant', content: estado });
+  state.lastSpokenText = estado;
+  await speak(estado);
+
+  await new Promise(r => setTimeout(r, 800));
+
+  const briefingText = await generateBriefing();
+  if (briefingText) {
+    openPanel('briefing');
+    addMsg('nova', briefingText);
+    state.hist.push({ role: 'assistant', content: briefingText });
+    state.lastSpokenText = briefingText;
+    await speak(briefingText);
+  } else {
+    addMsg('nova', 'No he podido generar el briefing.');
+    state.lastSpokenText = 'No he podido generar el briefing.';
+    await speak(state.lastSpokenText);
   }
-
-  fadeIn(wakeMusic, 0.55, 1500);
-
-  await new Promise(r => setTimeout(r, 2000));
-
-  addMsg('nova', '// SISTEMAS ACTIVOS — INICIANDO BRIEFING //');
-  window._novaHablando = true;
-  briefingAutomatico();
-
-  const esperarAudio = setInterval(() => {
-    if (!window._novaHablando) {
-      clearInterval(esperarAudio);
-      setTimeout(() => {
-        fadeOut(wakeMusic, 2000, () => {
-          wakeMusic.pause();
-          wakeMusic = null;
-          wakeActive = false;
-          setOrb('idle');
-          setTargetLevel(0);
-        });
-      }, 1000);
-    }
-  }, 500);
-}
-
-function fadeIn(audio, targetVol, ms) {
-  const steps = 30;
-  const interval = ms / steps;
-  const increment = targetVol / steps;
-  let vol = 0;
-  const timer = setInterval(() => {
-    vol = Math.min(vol + increment, targetVol);
-    audio.volume = vol;
-    if (vol >= targetVol) clearInterval(timer);
-  }, interval);
-}
-
-function fadeOut(audio, ms, cb) {
-  const steps = 30;
-  const interval = ms / steps;
-  const decrement = audio.volume / steps;
-  const timer = setInterval(() => {
-    audio.volume = Math.max(audio.volume - decrement, 0);
-    if (audio.volume <= 0) {
-      clearInterval(timer);
-      if (cb) cb();
-    }
-  }, interval);
 }
