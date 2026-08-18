@@ -4,229 +4,200 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>NOVA</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body>
 
-<div class="scan"></div>
-<div class="hud tl"></div><div class="hud tr"></div>
-<div class="hud bl"></div><div class="hud br"></div>
-
-<!-- LOADING -->
 <div class="loading" id="loading">
   <div class="ld-logo">NOV<em>A</em></div>
   <div class="ld-bar"><div class="ld-inner"></div></div>
-  <div class="ld-txt" id="ldTxt">INICIALIZANDO...</div>
+  <div class="ld-txt" id="ldTxt">INICIALIZANDO</div>
 </div>
 
-<!-- APP -->
 <div class="app">
 
-  <!-- HEADER -->
   <header>
     <div>
       <div class="logo">NOV<em>A</em></div>
-      <div class="tagline">SISTEMA AUTÓNOMO DE INTELIGENCIA</div>
+      <div class="tagline">Sistema Autónomo de Inteligencia</div>
     </div>
-    <div class="hud-info">
-      <div><span class="dot"></span>ONLINE</div>
-      <div id="clock">--:--:--</div>
-      <div id="dateD">-- --- ----</div>
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        <span>ACTIVO</span>
+      </div>
+      <div class="clock-block">
+        <div id="clock">--:--:--</div>
+        <div id="dateD">-- --- ----</div>
+      </div>
     </div>
   </header>
 
-  <!-- ORB COLUMN -->
-  <div class="orb-col">
-    <div class="orb-wrap">
-      <div class="ring r1"></div>
-      <div class="ring r2"></div>
-      <div class="ring r3"></div>
-      <canvas id="orb" width="300" height="300"></canvas>
-    </div>
-    <div class="orb-state" id="orbLbl">EN ESPERA</div>
+  <div class="entity-col">
+    <canvas id="novaCanvas"></canvas>
+    <div class="entity-state" id="orbLbl">EN ESPERA</div>
 
     <div class="quick-actions">
-      <div class="qa-btn" id="qaTasks">📋 TAREAS</div>
-      <div class="qa-btn" id="qaEmail">✉️ EMAIL</div>
-      <div class="qa-btn" id="qaBriefing">📊 BRIEFING</div>
-      <div class="qa-btn" id="qaCalendar">📅 AGENDA</div>
-      <div class="qa-btn" id="qaMarketing">🎯 MARKETING</div>
+      <div class="qa-btn" id="qaTasks">tareas</div>
+      <div class="qa-btn" id="qaEmail">email</div>
+      <div class="qa-btn" id="qaBriefing">briefing</div>
+      <div class="qa-btn" id="qaCalendar">agenda</div>
+      <div class="qa-btn" id="qaMarketing">marketing</div>
+      <div class="qa-btn" id="qaMemoria">memoria</div>
     </div>
 
-    <!-- Mini system status -->
-    <div class="status-mini" id="statusMini" style="opacity:0;transition:opacity .5s;">
+    <div class="status-mini" id="statusMini" style="opacity:0;transition:opacity .8s;">
       <div class="status-item">
-        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">CPU</div>
+        <span>CPU</span>
         <div class="status-bar"><div class="status-fill" id="cpuBar" style="width:0%"></div></div>
-        <div id="cpuVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+        <span id="cpuVal">—</span>
       </div>
       <div class="status-item">
-        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">RAM</div>
+        <span>RAM</span>
         <div class="status-bar"><div class="status-fill" id="ramBar" style="width:0%"></div></div>
-        <div id="ramVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+        <span id="ramVal">—</span>
       </div>
       <div class="status-item" id="batItem" style="display:none">
-        <div style="font-size:7px;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">BAT</div>
+        <span>BAT</span>
         <div class="status-bar"><div class="status-fill" id="batBar" style="width:0%"></div></div>
-        <div id="batVal" style="font-size:7px;color:var(--dim);margin-top:2px;">—</div>
+        <span id="batVal">—</span>
       </div>
     </div>
   </div>
 
-  <!-- CHAT COLUMN -->
   <div class="chat-col">
     <div class="chat-header">
-      <div class="chat-header-title">// COMM LOG</div>
-      <div class="chat-header-badge" id="agentBadge" style="display:none">⚡ AGENTE ACTIVO</div>
+      <div class="chat-header-label">conversación</div>
+      <div class="agent-badge" id="agentBadge">agente activo</div>
     </div>
-    <div class="chat-area">
-      <div class="comm-log" id="display">
-        <div class="empty" id="ph">// CARGANDO... //</div>
-      </div>
+    <div class="comm-log" id="display">
+      <div class="empty" id="ph">inicializando</div>
     </div>
   </div>
 
-  <!-- DIVIDER -->
-  <div class="div2"></div>
-
-  <!-- INPUT BAR -->
-  <div class="input-section">
-    <button class="btn-mic" id="micBtn">🎙️</button>
-    <input class="inp" type="text" id="txtIn" placeholder='Di "Ey Nova" o escribe aquí...'>
-    <button class="btn-send" id="btnSend">ENVIAR</button>
+  <div class="input-bar-wrap">
+    <button class="btn-mic" id="micBtn">⬤</button>
+    <input class="inp" type="text" id="txtIn" placeholder="habla con nova">
+    <button class="btn-send" id="btnSend">→</button>
   </div>
-
-  <!-- FOOTER -->
-  <footer>
-    <span>N.O.V.A v3.0</span>
-    <span id="sesId">SES---------</span>
-    <span class="clr" id="btnReset">[ RESET ]</span>
-  </footer>
 
 </div>
 
-<!-- FLOATING PANELS -->
-
-<!-- TASKS -->
+<!-- PANELS -->
 <div class="overlay" id="ov-tasks">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">📋 GESTIÓN DE TAREAS</div>
-      <div class="fp-close" data-panel="tasks">✕ CERRAR</div>
+      <div class="fp-title">Gestión de Tareas</div>
+      <div class="fp-close" data-panel="tasks">cerrar</div>
     </div>
     <div class="fp-body">
       <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <input class="fi" type="text" id="taskIn" placeholder="Nueva tarea..." style="flex:1;">
+        <input class="fi" type="text" id="taskIn" placeholder="nueva tarea" style="flex:1;">
         <select class="fi-sel" id="taskPri" style="width:auto;">
-          <option value="u">🔴 URGENTE</option>
-          <option value="h">🟡 ALTA</option>
-          <option value="n" selected>🔵 NORMAL</option>
+          <option value="u">urgente</option>
+          <option value="h">alta</option>
+          <option value="n" selected>normal</option>
         </select>
-        <button class="action-btn" id="btnAddTask">+ AÑADIR</button>
+        <button class="action-btn" id="btnAddTask">añadir</button>
       </div>
       <div id="tasksList"></div>
     </div>
   </div>
 </div>
 
-<!-- EMAIL -->
 <div class="overlay" id="ov-email">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">✉️ REDACTOR DE EMAILS</div>
-      <div class="fp-close" data-panel="email">✕ CERRAR</div>
+      <div class="fp-title">Redactor de Emails</div>
+      <div class="fp-close" data-panel="email">cerrar</div>
     </div>
     <div class="fp-body">
       <div class="row-fields">
-        <div class="field"><div class="label">DESTINATARIO</div><input class="fi" type="text" id="eTo" placeholder="nombre@empresa.com"></div>
-        <div class="field"><div class="label">ASUNTO</div><input class="fi" type="text" id="eSubj" placeholder="Asunto del email"></div>
+        <div class="field"><div class="label">Para</div><input class="fi" type="text" id="eTo" placeholder="email@empresa.com"></div>
+        <div class="field"><div class="label">Asunto</div><input class="fi" type="text" id="eSubj" placeholder="asunto"></div>
       </div>
       <div class="field">
-        <div class="label">TONO</div>
+        <div class="label">Tono</div>
         <select class="fi-sel" id="eTone">
           <option value="profesional">Profesional</option>
           <option value="formal">Formal</option>
-          <option value="cercano">Cercano y directo</option>
+          <option value="cercano">Cercano</option>
           <option value="urgente">Urgente</option>
-          <option value="disculpa">Disculpa / Rectificación</option>
-          <option value="seguimiento">Seguimiento comercial</option>
-          <option value="propuesta">Propuesta de colaboración</option>
+          <option value="disculpa">Disculpa</option>
+          <option value="seguimiento">Seguimiento</option>
+          <option value="propuesta">Propuesta</option>
         </select>
       </div>
       <div class="field">
-        <div class="label">¿QUÉ QUIERES COMUNICAR?</div>
-        <textarea class="fi-ta" id="eBody" placeholder="Describe brevemente el mensaje..."></textarea>
+        <div class="label">Mensaje</div>
+        <textarea class="fi-ta" id="eBody" placeholder="describe qué quieres comunicar"></textarea>
       </div>
-      <button class="action-btn full" id="btnGenEmail">⚡ GENERAR EMAIL</button>
+      <button class="action-btn full" id="btnGenEmail">generar email</button>
       <div style="margin-top:16px;position:relative;">
-        <div class="result-box" id="eResult"><span class="result-placeholder">// El email aparecerá aquí //</span></div>
-        <button class="copy-btn" id="copyBtnEmail">COPIAR</button>
+        <div class="result-box" id="eResult"><span class="result-placeholder">el email aparecerá aquí</span></div>
+        <button class="copy-btn" id="copyBtnEmail">copiar</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- BRIEFING -->
 <div class="overlay" id="ov-briefing">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">📊 BRIEFING DIARIO</div>
-      <div class="fp-close" data-panel="briefing">✕ CERRAR</div>
+      <div class="fp-title">Briefing Diario</div>
+      <div class="fp-close" data-panel="briefing">cerrar</div>
     </div>
     <div class="fp-body">
       <div class="brief-grid">
-        <div class="brief-card"><div class="bc-title">HORA ACTUAL</div><div class="bc-big" id="bTime">--:--</div></div>
-        <div class="brief-card"><div class="bc-title">TAREAS PENDIENTES</div><div class="bc-val" id="bTasks">—</div></div>
-        <div class="brief-card brief-span"><div class="bc-title">RESUMEN INTELIGENTE</div><div class="bc-val" id="bSummary">Pulsa Generar para obtener tu briefing personalizado.</div></div>
-        <div class="brief-card brief-span"><div class="bc-title">CONTEXTO DEL DÍA</div><div class="bc-val" id="bCtx">—</div></div>
+        <div class="brief-card"><div class="bc-title">Hora</div><div class="bc-big" id="bTime">--:--</div></div>
+        <div class="brief-card"><div class="bc-title">Tareas pendientes</div><div class="bc-val" id="bTasks">—</div></div>
+        <div class="brief-card brief-span"><div class="bc-title">Resumen inteligente</div><div class="bc-val" id="bSummary">Genera tu briefing personalizado.</div></div>
+        <div class="brief-card brief-span"><div class="bc-title">Contexto del día</div><div class="bc-val" id="bCtx">—</div></div>
       </div>
-      <button class="action-btn full" id="btnGenBriefing" style="margin-top:14px;">⚡ GENERAR BRIEFING</button>
+      <button class="action-btn full" id="btnGenBriefing" style="margin-top:14px;">generar briefing</button>
     </div>
   </div>
 </div>
 
-<!-- CALENDAR -->
 <div class="overlay" id="ov-calendar">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">📅 AGENDA — GOOGLE CALENDAR</div>
-      <div class="fp-close" data-panel="calendar">✕ CERRAR</div>
+      <div class="fp-title">Agenda — Google Calendar</div>
+      <div class="fp-close" data-panel="calendar">cerrar</div>
     </div>
     <div class="fp-body">
       <div id="calSetup" style="display:flex;flex-direction:column;gap:14px;align-items:center;padding:24px 0;text-align:center;">
-        <p style="color:var(--muted);font-size:13px;line-height:1.8;max-width:400px;">Conecta tu Google Calendar para ver tus próximos eventos directamente desde NOVA.</p>
-        <button class="action-btn" id="btnConnectCal" style="border-color:var(--green);color:var(--green);">CONECTAR GOOGLE CALENDAR</button>
+        <p style="color:var(--text-mid);font-size:13px;line-height:1.8;max-width:400px;font-weight:300;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
+        <button class="action-btn" id="btnConnectCal">conectar google calendar</button>
       </div>
       <div id="calEvents" style="display:none;"></div>
     </div>
   </div>
 </div>
 
-<!-- MARKETING -->
 <div class="overlay" id="ov-marketing">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">🎯 ESTRATEGIA DE MARKETING</div>
-      <div class="fp-close" data-panel="marketing">✕ CERRAR</div>
+      <div class="fp-title">Estrategia de Marketing</div>
+      <div class="fp-close" data-panel="marketing">cerrar</div>
     </div>
     <div class="fp-body">
       <div class="mkt-chips" id="mktChips">
-        <div class="mkt-chip on" data-mode="campaña">CAMPAÑA</div>
-        <div class="mkt-chip" data-mode="copy">COPYWRITING</div>
-        <div class="mkt-chip" data-mode="redes">REDES SOCIALES</div>
-        <div class="mkt-chip" data-mode="seo">SEO</div>
-        <div class="mkt-chip" data-mode="embudo">EMBUDO DE VENTAS</div>
-        <div class="mkt-chip" data-mode="analisis">ANÁLISIS</div>
+        <div class="mkt-chip on" data-mode="campaña">campaña</div>
+        <div class="mkt-chip" data-mode="copy">copy</div>
+        <div class="mkt-chip" data-mode="redes">redes</div>
+        <div class="mkt-chip" data-mode="seo">seo</div>
+        <div class="mkt-chip" data-mode="embudo">embudo</div>
+        <div class="mkt-chip" data-mode="analisis">análisis</div>
       </div>
       <div class="field">
-        <div class="label">DESCRIBE TU NEGOCIO / OBJETIVO</div>
-        <textarea class="fi-ta" id="mktIn" placeholder="Ej: Tienda online de ropa sostenible, quiero aumentar ventas un 30%..." style="min-height:100px;"></textarea>
+        <div class="label">Tu negocio / objetivo</div>
+        <textarea class="fi-ta" id="mktIn" placeholder="describe tu negocio o lo que quieres conseguir" style="min-height:100px;"></textarea>
       </div>
-      <button class="action-btn full" id="btnGenMarketing">⚡ GENERAR ESTRATEGIA</button>
+      <button class="action-btn full" id="btnGenMarketing">generar estrategia</button>
       <div style="margin-top:14px;position:relative;">
-        <div class="result-box" id="mktResult" style="min-height:120px;"><span class="result-placeholder">// La estrategia aparecerá aquí //</span></div>
-        <button class="copy-btn" id="copyBtnMarketing">COPIAR</button>
+        <div class="result-box" id="mktResult" style="min-height:120px;"><span class="result-placeholder">la estrategia aparecerá aquí</span></div>
+        <button class="copy-btn" id="copyBtnMarketing">copiar</button>
       </div>
     </div>
   </div>
@@ -235,29 +206,23 @@
 <script type="module" src="js/init.js"></script>
 
 <script>
-// Mini system status updater (si el agente está activo)
 async function updateStatus() {
   try {
-    const r = await fetch('http://localhost:4000/api/sistema', {signal: AbortSignal.timeout(2000)});
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.error) return;
-    document.getElementById('statusMini').style.opacity = '1';
-    document.getElementById('cpuBar').style.width = d.cpu + '%';
-    document.getElementById('cpuVal').textContent = d.cpu + '%';
-    document.getElementById('ramBar').style.width = d.ram_pct + '%';
-    document.getElementById('ramVal').textContent = d.ram_usada + 'G';
-    if (d.bateria !== null) {
-      document.getElementById('batItem').style.display = 'flex';
-      document.getElementById('batBar').style.width = d.bateria + '%';
-      document.getElementById('batVal').textContent = d.bateria + '%';
-    }
-    const badge = document.getElementById('agentBadge');
-    if (badge) badge.style.display = 'block';
-  } catch(e) {}
+    const r = await fetch('http://localhost:4000/api/sistema',{signal:AbortSignal.timeout(2000)});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.error)return;
+    document.getElementById('statusMini').style.opacity='1';
+    document.getElementById('cpuBar').style.width=d.cpu+'%';
+    document.getElementById('cpuVal').textContent=d.cpu+'%';
+    document.getElementById('ramBar').style.width=d.ram_pct+'%';
+    document.getElementById('ramVal').textContent=d.ram_usada+'G';
+    if(d.bateria!==null){document.getElementById('batItem').style.display='flex';document.getElementById('batBar').style.width=d.bateria+'%';document.getElementById('batVal').textContent=d.bateria+'%';}
+    const b=document.getElementById('agentBadge');if(b)b.style.display='block';
+  }catch(e){}
 }
-setInterval(updateStatus, 8000);
-setTimeout(updateStatus, 3000);
+setInterval(updateStatus,10000);
+setTimeout(updateStatus,3000);
 </script>
 
 </body>

@@ -4,3 +4,4 @@ export const ELEVEN_V = 'SRyJwjhI40bOiXgtq1Ia';
 export const SUPA_URL = 'https://ufmlofblsepronbyzish.supabase.co';
 export const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmbWxvZmJsc2Vwcm9uYnl6aXNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjEzMjAsImV4cCI6MjEwMjUzNzMyMH0.ACFsSthcARANk8zyfeRZiQLeHawVvOAr0cqAzjsZ-1A';
 export const GCAL_ID = '57696040424-lq5a5ci8e1vskc64r3ag8vd83lrigijm.apps.googleusercontent.com';
+export const NVIDIA_KEY = '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';

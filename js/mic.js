@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { askNova } from './chat.js';
+import { askNova, addMsg } from './chat.js';
 import { setOrb, setTargetLevel } from './orb.js';
 
 let recognition = null;
@@ -12,22 +12,17 @@ let modoConversacion = false;
 
 const SILENCE_TIMEOUT = 2000;
 const SILENCE_TIMEOUT_CONV = 3000;
-const WAKE_WORDS = ['ey nova', 'hey nova', 'hola nova', 'eh nova', 'nova'];
-const STOP_WORDS = ['para', 'detente', 'stop', 'silencio', 'deja de escuchar', 'modo manual'];
+const WAKE_WORDS = ['ey nova', 'hey nova', 'hola nova', 'eh nova'];
+const CONV_WORDS = ['modo conversacion', 'modo conversación', 'escuchame', 'escúchame', 'conversacion continua', 'conversación continua'];
+const WAKE_SEQUENCE = ['despierta', 'wake up', 'actívate', 'activate'];
+const STOP_WORDS = ['para', 'detente', 'stop', 'silencio', 'deja de escuchar'];
 
-// ── INDICADOR VISUAL ──
-function mostrarModoConversacion(activo) {
+function mostrarIndicador(activo) {
   let ind = document.getElementById('conv-indicator');
   if (!ind) {
     ind = document.createElement('div');
     ind.id = 'conv-indicator';
-    ind.style.cssText = `
-      position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
-      font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;
-      color:#00ffaa;background:rgba(0,255,170,0.08);
-      border:1px solid rgba(0,255,170,0.3);border-radius:2px;
-      padding:5px 16px;z-index:999;transition:opacity .3s;
-    `;
+    ind.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);font-family:Share Tech Mono,monospace;font-size:9px;letter-spacing:3px;color:#00ffaa;background:rgba(0,255,170,0.08);border:1px solid rgba(0,255,170,0.3);border-radius:2px;padding:5px 16px;z-index:999;transition:opacity .3s;';
     document.body.appendChild(ind);
   }
   if (activo) {
@@ -39,7 +34,6 @@ function mostrarModoConversacion(activo) {
   }
 }
 
-// ── WAKE WORD ──
 export function initWakeWord() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
@@ -53,21 +47,38 @@ export function initWakeWord() {
     if (isListening || window._novaHablando) return;
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (!event.results[i].isFinal && event.results[i][0].confidence < 0.7) continue;
       const t = event.results[i][0].transcript.toLowerCase().trim();
 
-      if (t.includes('modo conversacion') || t.includes('modo conversación') ||
-          t.includes('escuchame') || t.includes('escúchame')) {
+      const esDespertar = WAKE_SEQUENCE.some(w => t.includes(w));
+      if (esDespertar) {
         stopWakeWord();
-        activarModoConversacion();
-        break;
+        if (window._novaDespertar) window._novaDespertar();
+        setTimeout(() => startWakeWord(), 30000);
+        return;
       }
 
-      const matched = WAKE_WORDS.find(w => t.includes(w));
-      if (matched) {
-        const cmd = t.split(matched)[1]?.trim() || '';
+      const esConv = CONV_WORDS.some(w => t.includes(w));
+      if (esConv) {
+        stopWakeWord();
+        activarModoConversacion();
+        return;
+      }
+
+      const wake = WAKE_WORDS.find(w => t.includes(w));
+      if (wake) {
+        const cmd = t.split(wake).pop().trim();
+        if (WAKE_SEQUENCE.some(w => cmd.includes(w))) return;
         stopWakeWord();
         startMic(cmd);
-        break;
+        return;
+      }
+
+      if (t === 'nova' || t.startsWith('nova ')) {
+        const cmd = t.replace(/^nova\s*/, '').trim();
+        stopWakeWord();
+        startMic(cmd);
+        return;
       }
     }
   };
@@ -95,41 +106,39 @@ function stopWakeWord() {
   if (wakeWordRec) { try { wakeWordRec.stop(); } catch (e) {} }
 }
 
-// ── MODO CONVERSACIÓN ──
 function activarModoConversacion() {
   modoConversacion = true;
   window._novaModoConversacion = true;
   window._novaReiniciarMic = iniciarEscuchaContinua;
-  mostrarModoConversacion(true);
-  askNova('Modo conversación activado. Te escucho.');
+  mostrarIndicador(true);
+  addMsg('nova', 'Modo conversación activo. Te escucho.');
+  setTimeout(() => {
+    if (modoConversacion && !window._novaHablando) iniciarEscuchaContinua();
+  }, 400);
 }
 
 function desactivarModoConversacion() {
   modoConversacion = false;
   window._novaModoConversacion = false;
   window._novaReiniciarMic = null;
-  mostrarModoConversacion(false);
+  mostrarIndicador(false);
   isListening = false;
   clearTimeout(silenceTimer);
   if (recognition) { try { recognition.abort(); } catch (e) {} recognition = null; }
   resetMicUI();
   setOrb('idle');
   setTargetLevel(0);
+  addMsg('nova', 'Escucha continua desactivada.');
   startWakeWord();
 }
 
 function iniciarEscuchaContinua() {
-  // No iniciar si NOVA está hablando
   if (window._novaHablando) return;
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
 
-  // Limpiar recognition anterior
-  if (recognition) {
-    try { recognition.abort(); } catch (e) {}
-    recognition = null;
-  }
+  if (recognition) { try { recognition.abort(); } catch (e) {} recognition = null; }
 
   recognition = new SR();
   recognition.lang = 'es-ES';
@@ -137,21 +146,16 @@ function iniciarEscuchaContinua() {
   recognition.interimResults = true;
 
   recognition.onstart = () => {
-    // Si NOVA empezó a hablar mientras arrancaba, abortar
-    if (window._novaHablando) {
-      try { recognition.abort(); } catch (e) {}
-      return;
-    }
+    if (window._novaHablando) { try { recognition.abort(); } catch (e) {} return; }
     isListening = true;
     setOrb('listening');
     const micBtn = document.getElementById('micBtn');
     if (micBtn) micBtn.classList.add('listening');
     const txtIn = document.getElementById('txtIn');
-    if (txtIn) txtIn.placeholder = '⬤ NOVA te escucha... (di "PARA" para detener)';
+    if (txtIn) txtIn.placeholder = '⬤ Escuchando... (di "PARA" para detener)';
   };
 
   recognition.onresult = (event) => {
-    // IGNORAR todo si NOVA está hablando — filtro anti-eco principal
     if (window._novaHablando) {
       finalTranscript = '';
       const txtIn = document.getElementById('txtIn');
@@ -159,18 +163,17 @@ function iniciarEscuchaContinua() {
       return;
     }
 
-    let interimText = '';
+    let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript;
       if (event.results[i].isFinal) finalTranscript += t + ' ';
-      else interimText += t;
+      else interim += t;
     }
 
-    const current = (finalTranscript + interimText).trim();
+    const current = (finalTranscript + interim).trim();
     const txtIn = document.getElementById('txtIn');
     if (txtIn && current) txtIn.value = current;
 
-    // Stop words
     const lower = current.toLowerCase();
     if (STOP_WORDS.some(w => lower.endsWith(w) || lower.includes(' ' + w) || lower.includes(w + ' '))) {
       clearTimeout(silenceTimer);
@@ -183,12 +186,9 @@ function iniciarEscuchaContinua() {
   };
 
   recognition.onerror = (e) => {
-    if (e.error === 'no-speech') return;
-    if (e.error === 'aborted') return;
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
     if (modoConversacion && !window._novaHablando) {
-      setTimeout(() => {
-        if (modoConversacion && !window._novaHablando) iniciarEscuchaContinua();
-      }, 500);
+      setTimeout(() => { if (modoConversacion && !window._novaHablando) iniciarEscuchaContinua(); }, 500);
     }
   };
 
@@ -196,9 +196,7 @@ function iniciarEscuchaContinua() {
     if (modoConversacion && !window._novaHablando) {
       setTimeout(() => {
         if (modoConversacion && !window._novaHablando) {
-          try { recognition?.start(); } catch (e) {
-            iniciarEscuchaContinua();
-          }
+          try { recognition?.start(); } catch (e) { iniciarEscuchaContinua(); }
         }
       }, 300);
     }
@@ -209,25 +207,17 @@ function iniciarEscuchaContinua() {
     finalTranscript = '';
     recognition.start();
   } catch (e) {
-    console.warn('Error iniciando mic:', e);
+    console.warn('Error mic:', e);
   }
 }
 
 function enviarEnModoConv() {
   clearTimeout(silenceTimer);
-
-  // No enviar si NOVA estaba hablando
-  if (window._novaHablando) {
-    finalTranscript = '';
-    const txtIn = document.getElementById('txtIn');
-    if (txtIn) txtIn.value = '';
-    return;
-  }
+  if (window._novaHablando) { finalTranscript = ''; return; }
 
   const txtIn = document.getElementById('txtIn');
   const text = (txtIn ? txtIn.value : finalTranscript).trim();
 
-  // Parar escucha
   isListening = false;
   if (recognition) { try { recognition.stop(); } catch (e) {} }
   finalTranscript = '';
@@ -235,16 +225,11 @@ function enviarEnModoConv() {
 
   if (text) {
     askNova(text);
-    // audio.js se encarga de reiniciar el mic cuando termina de hablar
   } else if (modoConversacion) {
-    // Si no hay texto, reiniciar escucha directamente
-    setTimeout(() => {
-      if (modoConversacion && !window._novaHablando) iniciarEscuchaContinua();
-    }, 500);
+    setTimeout(() => { if (modoConversacion && !window._novaHablando) iniciarEscuchaContinua(); }, 500);
   }
 }
 
-// ── MIC NORMAL ──
 export function initMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
@@ -264,14 +249,14 @@ export function initMic() {
   };
 
   recognition.onresult = (event) => {
-    if (window._novaHablando) return; // filtro anti-eco
-    let interimText = '';
+    if (window._novaHablando) return;
+    let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript;
       if (event.results[i].isFinal) finalTranscript += t + ' ';
-      else interimText += t;
+      else interim += t;
     }
-    const current = (finalTranscript + interimText).trim();
+    const current = (finalTranscript + interim).trim();
     const txtIn = document.getElementById('txtIn');
     if (txtIn && current) txtIn.value = current;
     clearTimeout(silenceTimer);
@@ -342,7 +327,7 @@ function resetMicUI() {
   const micBtn = document.getElementById('micBtn');
   if (micBtn) micBtn.classList.remove('listening');
   const txtIn = document.getElementById('txtIn');
-  if (txtIn) txtIn.placeholder = 'Habla con NOVA o di "Ey Nova"...';
+  if (txtIn) txtIn.placeholder = 'Di "Ey Nova" o escribe aquí...';
   finalTranscript = '';
 }
 

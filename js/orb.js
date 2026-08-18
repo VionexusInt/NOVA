@@ -1,387 +1,280 @@
-const canvas = document.getElementById('orb');
-const ctx = canvas.getContext('2d');
-
-let W = window.innerWidth;
-let H = window.innerHeight;
-let cx = W / 2;
-let cy = H / 2;
-
-function resizeCanvas() {
-  const DPR = window.devicePixelRatio || 1;
-  W = window.innerWidth;
-  H = window.innerHeight;
-  cx = W / 2;
-  cy = H / 2;
-
-  canvas.style.position = 'fixed';
-  canvas.style.top = '0';
-  canvas.style.left = '0';
-  canvas.style.width = '100vw';
-  canvas.style.height = '100vh';
-  canvas.style.pointerEvents = 'none';
-  canvas.style.zIndex = '1';
-
-  canvas.width = Math.floor(W * DPR);
-  canvas.height = Math.floor(H * DPR);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // Resetea y aplica la escala sin acumular
-}
-
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-let orbSt = 'idle';
-let time = 0;
+let canvas, ctx, W, H, cx, cy;
+let orbState = 'idle';
 let targetLvl = 0;
 let audioLvl = 0;
+let time = 0;
+let animFrame = null;
 
-function gC() {
-  switch (orbSt) {
-    case 'listening':
-      return [[255, 30, 60], [255, 110, 70], [200, 0, 40]];
-    case 'thinking':
-      return [[255, 170, 0], [255, 230, 80], [170, 70, 0]];
-    case 'speaking':
-      return [[0, 255, 170], [80, 255, 220], [0, 130, 90]];
-    default:
-      return [[0, 180, 255], [70, 210, 255], [0, 70, 170]];
-  }
+// Neural network nodes
+const NODES = 80;
+const CONNECTIONS = 120;
+let nodes = [];
+let connections = [];
+
+// Waveform data
+let waveData = new Array(64).fill(0);
+let waveTarget = new Array(64).fill(0);
+
+function initCanvas() {
+  canvas = document.getElementById('novaCanvas');
+  if (!canvas) return;
+  ctx = canvas.getContext('2d');
+  resize();
+  window.addEventListener('resize', resize);
+  initNodes();
+  draw();
 }
 
-function rc(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
-
-class AccretionParticle {
-  constructor() { this.reset(); }
-  reset() {
-    this.angle = Math.random() * Math.PI * 2;
-    this.radius = 80 + Math.random() * 70;
-    this.speed = 0.003 + Math.random() * 0.01;
-    this.size = 0.4 + Math.random() * 1.8;
-    this.bright = 0.2 + Math.random() * 0.8;
-    this.trail = [];
-    this.maxTrail = 8 + Math.floor(Math.random() * 10);
-  }
-  update() {
-    this.angle += this.speed * (1 + audioLvl * 3);
-    this.radius -= (0.4 + audioLvl * 1.8); 
-    if (this.radius < 25) this.reset();
-    
-    const x = cx + Math.cos(this.angle) * this.radius;
-    const y = cy + Math.sin(this.angle) * this.radius;
-    
-    this.trail.push({ x, y });
-    if (this.trail.length > this.maxTrail) this.trail.shift();
-  }
-  draw(C, e) {
-    if (this.trail.length < 2) return;
-    ctx.beginPath();
-    for (let i = 0; i < this.trail.length; i++) {
-      const p = this.trail[i];
-      const ratio = i / this.trail.length;
-      const alpha = ratio * this.bright * (0.2 + e * 0.6) * 0.3;
-      const size = this.size * ratio;
-      ctx.fillStyle = rc(C[0], alpha);
-      ctx.moveTo(p.x, p.y);
-      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-    }
-    ctx.fill();
-  }
+function resize() {
+  const size = canvas.clientWidth * window.devicePixelRatio;
+  canvas.width = size;
+  canvas.height = size;
+  W = canvas.width;
+  H = canvas.height;
+  cx = W / 2;
+  cy = H / 2;
+  initNodes();
 }
-const accretionParticles = Array.from({ length: 140 }, () => new AccretionParticle());
 
-class Node3D {
-  constructor() {
-    this.reset();
-    this.radius = 10 + Math.random() * 80;
+function initNodes() {
+  nodes = [];
+  connections = [];
+  const R = W * 0.42;
+
+  for (let i = 0; i < NODES; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = R * (0.1 + Math.pow(Math.random(), 0.6) * 0.9);
+
+    nodes.push({
+      x: cx + r * Math.sin(phi) * Math.cos(theta),
+      y: cy + r * Math.sin(phi) * Math.sin(theta),
+      bx: cx + r * Math.sin(phi) * Math.cos(theta),
+      by: cy + r * Math.sin(phi) * Math.sin(theta),
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      r: r,
+      theta: theta,
+      phi: phi,
+      size: 0.8 + Math.random() * 2,
+      pulse: Math.random() * Math.PI * 2,
+      pulseSpd: 0.01 + Math.random() * 0.03,
+      active: Math.random() > 0.6,
+      layer: Math.floor(Math.random() * 3),
+      signal: 0,
+      signalSpd: 0,
+    });
   }
-  reset() {
-    this.phi = Math.random() * Math.PI * 2;
-    this.theta = (Math.random() - 0.5) * Math.PI;
-    this.baseRadius = 40 + Math.random() * 35;
-    this.radius = this.baseRadius;
-    this.speed = 0.002 + Math.random() * 0.006;
-    this.size = 1.2 + Math.random() * 2.2;
-    this.pulse = Math.random() * Math.PI * 2;
-    this.projX = 0; this.projY = 0; this.projSize = 0; this.zIdx = 0;
-  }
-  update() {
-    this.phi += this.speed * (1 + audioLvl * 0.8);
-    this.pulse += 0.03 + audioLvl * 0.1;
-    this.radius = this.baseRadius + Math.sin(this.pulse) * (1 + audioLvl * 10);
 
-    const cosTheta = Math.cos(this.theta);
-    const sinTheta = Math.sin(this.theta);
-    const cosPhi = Math.cos(this.phi);
-    const sinPhi = Math.sin(this.phi);
-
-    let x3d = this.radius * cosTheta * cosPhi;
-    let y3d = this.radius * sinTheta;
-    let z3d = this.radius * cosTheta * sinPhi;
-
-    const rotY = time * 0.2;
-    const finalX = x3d * Math.cos(rotY) + z3d * Math.sin(rotY);
-    const finalZ = -x3d * Math.sin(rotY) + z3d * Math.cos(rotY);
-    const finalY = y3d;
-
-    const perspective = 1 + finalZ / 150;
-    this.zIdx = finalZ;
-    this.projX = cx + finalX * perspective;
-    this.projY = cy + finalY * perspective;
-    this.projSize = this.size * perspective * (0.8 + Math.sin(this.pulse) * 0.2);
-  }
-  draw(C, e) {
-    const intensity = 0.4 + e * 0.6;
-    ctx.beginPath();
-    ctx.arc(this.projX, this.projY, this.projSize * 3, 0, Math.PI * 2);
-    ctx.fillStyle = rc(C[0], 0.1 * intensity);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(this.projX, this.projY, this.projSize, 0, Math.PI * 2);
-    ctx.fillStyle = rc(C[1], intensity);
-    ctx.fill();
-  }
-}
-const nodes3D = Array.from({ length: 45 }, () => new Node3D());
-
-function drawNeuralNetwork(C, e) {
-  nodes3D.sort((a, b) => a.zIdx - b.zIdx);
-
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i < nodes3D.length; i++) {
-    for (let j = i + 1; j < nodes3D.length; j++) {
-      const n1 = nodes3D[i];
-      const n2 = nodes3D[j];
-      const distSq = Math.pow(n1.projX - n2.projX, 2) + Math.pow(n1.projY - n2.projY, 2);
-      
-      const maxDist = 55 + e * 20;
-      if (distSq < maxDist * maxDist) {
-        const dist = Math.sqrt(distSq);
-        const alpha = (1 - dist / maxDist) * (0.15 + e * 0.3);
-        ctx.beginPath();
-        ctx.moveTo(n1.projX, n1.projY);
-        ctx.lineTo(n2.projX, n2.projY);
-        const grad = ctx.createLinearGradient(n1.projX, n1.projY, n2.projX, n2.projY);
-        grad.addColorStop(0, rc(C[0], alpha * (n1.zIdx > 0 ? 1 : 0.5)));
-        grad.addColorStop(1, rc(C[1], alpha * (n2.zIdx > 0 ? 1 : 0.5)));
-        ctx.strokeStyle = grad;
-        ctx.stroke();
-      }
+  for (let i = 0; i < CONNECTIONS; i++) {
+    const a = Math.floor(Math.random() * NODES);
+    let b = Math.floor(Math.random() * NODES);
+    while (b === a) b = Math.floor(Math.random() * NODES);
+    const dist = Math.hypot(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y);
+    if (dist < W * 0.35) {
+      connections.push({ a, b, strength: Math.random(), signal: 0, signalPos: 0, active: false, cooldown: 0 });
     }
   }
-  nodes3D.forEach(n => n.draw(C, e));
 }
 
-class Shockwave {
-  constructor(delay) { this.delay = delay; this.reset(); }
-  reset() {
-    this.r = 30;
-    this.alpha = 0;
-    this.active = false;
-    this.timer = this.delay;
-    this.width = 1.5 + Math.random() * 2;
-  }
-  trigger() {
-    if (this.active) return;
-    this.active = true;
-    this.r = 30;
-    this.alpha = 0.8 + audioLvl * 0.2;
-  }
-  update() {
-    if (this.active) {
-      this.r += 4.5 + audioLvl * 9;
-      const maxR = Math.hypot(cx, cy);
-      this.alpha = (1 - (this.r / maxR)) * (0.7 + audioLvl * 0.3);
-
-      if (this.r >= maxR || this.alpha <= 0) this.reset();
-    } else {
-      this.timer--;
-      if (this.timer <= 0 || (audioLvl > 0.8 && Math.random() < 0.05)) {
-        this.trigger();
-        this.timer = 50 + Math.random() * 70 - audioLvl * 30;
-      }
-    }
-  }
-  draw(C) {
-    if (!this.active || this.alpha <= 0) return;
-    ctx.beginPath();
-    ctx.arc(cx, cy, this.r, 0, Math.PI * 2);
-    ctx.strokeStyle = rc(C[1], Math.max(0, this.alpha));
-    ctx.lineWidth = this.width;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, this.r, 0, Math.PI * 2);
-    ctx.strokeStyle = rc(C[0], Math.max(0, this.alpha * 0.3));
-    ctx.lineWidth = this.width * 2.5;
-    ctx.stroke();
+function getColors() {
+  switch (orbState) {
+    case 'listening': return { node: [232, 112, 112], conn: [232, 112, 112], wave: [232, 112, 112], center: [255, 140, 140] };
+    case 'thinking':  return { node: [200, 168, 130], conn: [200, 168, 130], wave: [200, 168, 130], center: [220, 190, 150] };
+    case 'speaking':  return { node: [168, 216, 176], conn: [168, 216, 176], wave: [168, 216, 176], center: [190, 230, 200] };
+    default:          return { node: [126, 184, 255], conn: [126, 184, 255], wave: [126, 184, 255], center: [160, 200, 255] };
   }
 }
-const shockwaves = [new Shockwave(0), new Shockwave(40), new Shockwave(80), new Shockwave(120)];
 
-class EnergyBeam {
-  constructor() { this.reset(); }
-  reset() {
-    this.angle = Math.random() * Math.PI * 2;
-    this.len = 50 + Math.random() * 50;
-    this.width = 1 + Math.random() * 4;
-    this.speed = 0.01 + Math.random() * 0.02;
-    this.life = 0;
-    this.maxLife = 30 + Math.random() * 40;
-    this.active = false;
-  }
-  update() {
-    if (!this.active) {
-      if (Math.random() < 0.01 + audioLvl * 0.1) {
-        this.reset();
-        this.active = true;
-      }
-      return;
-    }
-    this.life++;
-    this.angle += this.speed * (Math.random() < 0.5 ? 1 : -1) * (1 + audioLvl);
-    if (this.life >= this.maxLife) this.active = false;
-  }
-  draw(C, e) {
-    if (!this.active) return;
-    const progress = this.life / this.maxLife;
-    const alpha = Math.sin(progress * Math.PI) * (0.5 + e * 0.5) * 0.7;
-    const currentLen = this.len * (1 + e * 1.5) * (0.8 + progress * 0.2);
-    
-    const x1 = cx + Math.cos(this.angle) * 20;
-    const y1 = cy + Math.sin(this.angle) * 20;
-    const x2 = cx + Math.cos(this.angle) * (20 + currentLen);
-    const y2 = cy + Math.sin(this.angle) * (20 + currentLen);
-
-    const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-    grad.addColorStop(0, rc(C[1], alpha));
-    grad.addColorStop(0.5, rc(C[0], alpha * 0.5));
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = this.width * (1 - progress * 0.5);
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  }
+function rgba(c, a) {
+  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
-const beams = Array.from({ length: 12 }, () => new EnergyBeam());
 
-function drawCore(C, e) {
-  const basePulse = Math.sin(time * 2) * 2;
-  const audioPulse = e * 12;
-  const coreR = 36 + basePulse + audioPulse;
+function draw() {
+  animFrame = requestAnimationFrame(draw);
+  if (!ctx) return;
 
-  const exteriorGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.5);
-  exteriorGrad.addColorStop(0, rc(C[0], 0.2 + e * 0.2));
-  exteriorGrad.addColorStop(0.6, rc(C[2], 0.05));
-  exteriorGrad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.beginPath(); ctx.arc(cx, cy, coreR * 2.5, 0, Math.PI * 2);
-  ctx.fillStyle = exteriorGrad; ctx.fill();
+  ctx.clearRect(0, 0, W, H);
+  time += 0.008;
+  audioLvl += (targetLvl - audioLvl) * 0.05;
+  const e = audioLvl;
+  const C = getColors();
+  const R = W * 0.42;
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(time * 0.3);
-  ctx.scale(1, 0.3);
+  // Update waveform
+  for (let i = 0; i < 64; i++) {
+    waveTarget[i] = (Math.sin(time * 2 + i * 0.3) * 0.3 + Math.random() * 0.2) * (0.3 + e * 0.7);
+    waveData[i] += (waveTarget[i] - waveData[i]) * 0.15;
+  }
+
+  // ── DEEP AURA ──
+  const aura = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.4);
+  aura.addColorStop(0, rgba(C.center, 0.04 + e * 0.06));
+  aura.addColorStop(0.5, rgba(C.node, 0.02 + e * 0.03));
+  aura.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.beginPath();
-  ctx.arc(0, 0, coreR * 1.6, 0, Math.PI * 2);
-  ctx.strokeStyle = rc(C[1], 0.2 + e * 0.2);
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for(let i=0; i<4; i++){
-    const ang = (i/4) * Math.PI * 2 + time;
-    ctx.moveTo(Math.cos(ang)*coreR*1.2, Math.sin(ang)*coreR*1.2);
-    ctx.lineTo(Math.cos(ang)*coreR*1.6, Math.sin(ang)*coreR*1.6);
-  }
-  ctx.strokeStyle = rc(C[0], 0.3 + e * 0.3); ctx.stroke();
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
-  const ringGrad = ctx.createRadialGradient(cx, cy, coreR * 0.8, cx, cy, coreR * 1.1);
-  ringGrad.addColorStop(0, rc(C[2], 0));
-  ringGrad.addColorStop(0.5, rc(C[1], 0.9 + e * 0.1));
-  ringGrad.addColorStop(1, rc(C[0], 0));
-  ctx.fillStyle = ringGrad;
+  ctx.arc(cx, cy, R * 1.4, 0, Math.PI * 2);
+  ctx.fillStyle = aura;
   ctx.fill();
 
-  ctx.beginPath(); ctx.arc(cx, cy, coreR * 0.8, 0, Math.PI * 2);
-  const darkGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 0.8);
-  darkGrad.addColorStop(0, 'rgba(0,10,30,1)');
-  darkGrad.addColorStop(1, 'rgba(0,0,0,1)');
-  ctx.fillStyle = darkGrad; ctx.fill();
+  // ── BREATHING BOUNDARY ──
+  const breathe = 1 + Math.sin(time * 0.7) * 0.02;
+  for (let ring = 3; ring >= 0; ring--) {
+    const rr = R * breathe * (0.85 + ring * 0.05);
+    const alpha = (0.03 - ring * 0.006) + e * 0.02;
+    ctx.beginPath();
+    for (let i = 0; i <= 100; i++) {
+      const a = (i / 100) * Math.PI * 2;
+      const noise = Math.sin(a * 5 + time + ring) * R * 0.018 * (1 + e * 2)
+                  + Math.sin(a * 11 - time * 1.3 + ring) * R * 0.008;
+      const px = cx + Math.cos(a) * (rr + noise);
+      const py = cy + Math.sin(a) * (rr + noise);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = rgba(C.node, alpha);
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
 
-  const innerR = coreR * 0.5;
-  ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
-  const innerGrad = ctx.createRadialGradient(cx - innerR*0.3, cy - innerR*0.3, 0, cx, cy, innerR);
-  innerGrad.addColorStop(0, 'rgba(255,255,255,1)');
-  innerGrad.addColorStop(0.2, rc(C[1], 1));
-  innerGrad.addColorStop(0.6, rc(C[0], 0.6));
-  innerGrad.addColorStop(1, rc(C[2], 0.1));
-  ctx.fillStyle = innerGrad; ctx.fill();
+  // ── WAVEFORM RING ──
+  if (orbState !== 'idle' || e > 0.05) {
+    ctx.beginPath();
+    for (let i = 0; i <= 64; i++) {
+      const a = (i / 64) * Math.PI * 2 - Math.PI / 2;
+      const wIdx = i % 64;
+      const wave = waveData[wIdx] * R * 0.18;
+      const rr2 = R * 0.88 * breathe;
+      const px = cx + Math.cos(a) * (rr2 + wave);
+      const py = cy + Math.sin(a) * (rr2 + wave);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = rgba(C.wave, 0.2 + e * 0.3);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
 
+  // ── UPDATE NODES ──
+  nodes.forEach((n, i) => {
+    n.pulse += n.pulseSpd * (1 + e);
+    // Slow organic drift
+    n.theta += 0.001 * (i % 2 === 0 ? 1 : -1) * (1 + e * 0.5);
+    n.phi += 0.0008 * Math.sin(time + i) * (1 + e * 0.3);
+    const r = n.r * (1 + Math.sin(time * 0.5 + i) * 0.02 + e * 0.08);
+    n.x = cx + r * Math.sin(n.phi) * Math.cos(n.theta);
+    n.y = cy + r * Math.sin(n.phi) * Math.sin(n.theta);
+
+    // Signal propagation
+    if (n.signal > 0) {
+      n.signal -= 0.03;
+      if (n.signal < 0) n.signal = 0;
+    }
+
+    // Random activations
+    if (Math.random() < 0.001 * (1 + e * 5)) {
+      n.signal = 1;
+    }
+  });
+
+  // ── CONNECTIONS ──
+  connections.forEach(conn => {
+    const na = nodes[conn.a];
+    const nb = nodes[conn.b];
+    const dist = Math.hypot(na.x - nb.x, na.y - nb.y);
+
+    if (dist > W * 0.38) return;
+
+    const baseAlpha = (1 - dist / (W * 0.38)) * 0.06 * conn.strength;
+    const signalBoost = (na.signal + nb.signal) * 0.15;
+
+    // Base connection line
+    ctx.beginPath();
+    ctx.moveTo(na.x, na.y);
+    ctx.lineTo(nb.x, nb.y);
+    ctx.strokeStyle = rgba(C.conn, baseAlpha + signalBoost + e * 0.05);
+    ctx.lineWidth = 0.5 + signalBoost * 2;
+    ctx.stroke();
+
+    // Signal pulse traveling along connection
+    if (conn.active) {
+      conn.signalPos += 0.04 * (1 + e);
+      if (conn.signalPos >= 1) {
+        conn.active = false;
+        conn.signalPos = 0;
+        conn.cooldown = 30 + Math.random() * 60;
+        nodes[conn.b].signal = Math.min(1, nodes[conn.b].signal + 0.5);
+      }
+      const px = na.x + (nb.x - na.x) * conn.signalPos;
+      const py = na.y + (nb.y - na.y) * conn.signalPos;
+      ctx.beginPath();
+      ctx.arc(px, py, 2 + e * 2, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(C.center, 0.7 + e * 0.3);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, 5 + e * 4, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(C.center, 0.15);
+      ctx.fill();
+    } else {
+      if (conn.cooldown > 0) conn.cooldown--;
+      else if (na.signal > 0.3 && Math.random() < 0.02 * (1 + e * 3)) {
+        conn.active = true;
+        conn.signalPos = 0;
+      }
+    }
+  });
+
+  // ── NODES ──
+  nodes.forEach((n, i) => {
+    const pulseFactor = 0.5 + Math.sin(n.pulse) * 0.5;
+    const isActive = n.signal > 0.1;
+    const alpha = (0.15 + pulseFactor * 0.2 + n.signal * 0.5 + e * 0.2) * (n.layer === 0 ? 0.6 : n.layer === 1 ? 0.85 : 1);
+    const size = n.size * (1 + n.signal * 0.8 + e * 0.3) * (n.layer === 2 ? 1.3 : 1);
+
+    if (isActive) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, size * 4, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(C.node, n.signal * 0.08);
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, size, 0, Math.PI * 2);
+    ctx.fillStyle = rgba(C.node, alpha);
+    ctx.fill();
+  });
+
+  // ── CENTER CORE ──
+  const coreR = W * 0.06 * breathe * (1 + e * 0.15);
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 3);
+  coreGrad.addColorStop(0, rgba(C.center, 0.12 + e * 0.1));
+  coreGrad.addColorStop(0.5, rgba(C.node, 0.04 + e * 0.04));
+  coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.beginPath();
-  ctx.ellipse(cx - innerR*0.2, cy - innerR*0.3, innerR*0.6, innerR*0.3, Math.PI/4, 0, Math.PI*2);
-  const specGrad = ctx.createLinearGradient(cx - innerR, cy - innerR, cx, cy);
-  specGrad.addColorStop(0, 'rgba(255,255,255,0.7)');
-  specGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = specGrad; ctx.fill();
+  ctx.arc(cx, cy, coreR * 3, 0, Math.PI * 2);
+  ctx.fillStyle = coreGrad;
+  ctx.fill();
+
+  // Center point
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2.5 + e * 2, 0, Math.PI * 2);
+  ctx.fillStyle = rgba(C.center, 0.6 + e * 0.4);
+  ctx.fill();
 }
-
-function loop() {
-  ctx.clearRect(0, 0, W, H);
-
-  time += 0.016;
-  audioLvl += (targetLvl - audioLvl) * 0.12;
-  
-  const C = gC();
-  const e = audioLvl;
-
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-
-  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.5);
-  bgGrad.addColorStop(0, rc(C[0], 0.12 + e * 0.15));
-  bgGrad.addColorStop(0.5, rc(C[2], 0.03));
-  bgGrad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  accretionParticles.forEach(p => { p.update(); p.draw(C, e); });
-  shockwaves.forEach(w => { w.update(); w.draw(C); });
-  beams.forEach(b => { b.update(); b.draw(C, e); });
-
-  nodes3D.forEach(n => n.update());
-  drawNeuralNetwork(C, e);
-
-  ctx.globalCompositeOperation = 'source-over';
-  drawCore(C, e);
-
-  ctx.restore();
-
-  requestAnimationFrame(loop);
-}
-
-loop();
 
 export function setOrb(s) {
-  orbSt = s;
-  const L = {
-    idle: 'SISTEMA COMPLETO - EN ESPERA',
-    listening: 'RECONOCIMIENTO DE VOZ ACTIVO',
-    thinking: 'PROCESANDO CONSULTA N.O.V.A.',
-    speaking: 'SINTETIZANDO RESPUESTA'
-  };
-  const lbl = document.getElementById('orbLbl');
-  if(lbl) lbl.textContent = L[s] || 'EN ESPERA';
-  
-  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.3);
+  orbState = s;
+  const labels = { idle: 'EN ESPERA', listening: 'ESCUCHANDO', thinking: 'PROCESANDO', speaking: 'RESPONDIENDO' };
+  const el = document.getElementById('orbLbl');
+  if (el) el.textContent = labels[s] || 'EN ESPERA';
+  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.4);
+  else { setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1000); }
 }
 
 export function setTargetLevel(v) {
-  targetLvl = v;
+  targetLvl = Math.max(0, Math.min(1, v));
+}
+
+export function initOrb() {
+  initCanvas();
 }

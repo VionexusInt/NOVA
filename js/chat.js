@@ -1,10 +1,13 @@
 import { state } from './state.js';
 import { esc } from './helpers.js';
-import { saveMsg, updateMem, groqChat } from './api.js';
+import { saveMsg, updateMem, groqChat, extraerYGuardarMemoria, formatearMemoria } from './api.js';
 import { setOrb, setTargetLevel } from './orb.js';
 import { speak } from './audio.js';
 import { detectPanel } from './paneles.js';
 import { parsearAccionPC, procesarAccionesPC, agentDisponible, ejecutarAccion } from './agent.js';
+import { mirarPorCamara, leerTextoEnCamara, identificarPersona, analizarEntorno, activarModoVigilante, pararCamara } from './vision.js';
+import { getResumenCalendario, crearEvento, calendarDisponible } from './calendar.js';
+import { activarModoProgramacion, desactivarModoProgramacion, esModoProgamacion, procesarCodigoConNova, showTypingCodigo, setProyectoContexto } from './programacion.js';
 
 export function addMsg(role, text) {
   if (!text || typeof text !== 'string') return;
@@ -36,13 +39,15 @@ export function rmTyping() {
   document.querySelectorAll('#typing, .typing-indicator-msg').forEach(e => e.remove());
 }
 
-// ══ SISTEMA PROMPT JARVIS ══
 const SYS_BASE = `Eres NOVA, un sistema de inteligencia artificial avanzado y personal — exactamente como JARVIS en Iron Man.
 Personalidad: frío, preciso, ligeramente irónico, extremadamente eficiente. Sin muletillas ni relleno.
 Idioma: español de España. Respuestas de 1-3 frases salvo que pidan más detalle.
 Nunca dices "claro", "por supuesto", "perfecto", "entendido". Vas directo al punto.
 Tienes acceso a búsqueda web en tiempo real — úsala cuando necesites información actual.
-Tienes control total del PC del usuario.`;
+Tienes control total del PC del usuario.
+Tienes memoria estructurada del usuario — úsala para personalizar respuestas y anticipar necesidades.
+Cuando el usuario pregunte por su agenda, calendario, eventos o reuniones, recibirás el contexto en el prompt.
+Para crear eventos usa: CREAR_EVENTO:titulo|YYYY-MM-DD|HH:MM|duracion_minutos|descripcion`;
 
 const SYS_AGENTE = `
 
@@ -70,17 +75,11 @@ Word: [ACCION:crear_word|nombre:titulo|contenido:texto completo aquí]
 PDF: [ACCION:crear_pdf|nombre:titulo|contenido:texto completo aquí]
 Imagen: [ACCION:crear_imagen|nombre:titulo|texto:texto en la imagen]
 CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]
-Automatización: [ACCION:crear_auto|nombre:id|cond_tipo:cpu_mayor|cond_valor:80|acc_tipo:notificar|acc_valor:CPU alta]
-
-EJEMPLOS REALES:
-"Abre Chrome" → "Abriendo Chrome.[ACCION:abrir_programa|nombre:chrome]"
-"Busca trabajo en Madrid" → "Buscando.[ACCION:buscar_google|query:trabajo en Madrid]"
-"Crea un anuncio de trabajo" → "Generando.[ACCION:crear_word|nombre:Anuncio Trabajo|contenido:OFERTA DE EMPLEO\\n\\nPuesto vacante\\nEmpresa\\n\\nRequisitos:\\n- Experiencia 2 años\\n- Incorporación inmediata\\n\\nEnviar CV a: rrhh@empresa.com]"
-"Qué procesos consumen más CPU" → muestra info del sistema + [ACCION:sistema_info]
-"Cierra el explorador" → [ACCION:cerrar_ventana|titulo:Explorador de archivos]`;
+Automatización: [ACCION:crear_auto|nombre:id|cond_tipo:cpu_mayor|cond_valor:80|acc_tipo:notificar|acc_valor:CPU alta]`;
 
 let agentActivo = false;
 let monitorInterval = null;
+let msgsSinExtraer = 0;
 
 agentDisponible().then(ok => {
   agentActivo = ok;
@@ -90,7 +89,6 @@ agentDisponible().then(ok => {
   }
 });
 
-// ── MONITOR PROACTIVO ──
 function iniciarMonitorProactivo() {
   if (monitorInterval) clearInterval(monitorInterval);
   monitorInterval = setInterval(async () => {
@@ -105,69 +103,123 @@ function iniciarMonitorProactivo() {
   }, 15000);
 }
 
+function buildSystemPrompt(contextoExtra = '') {
+  const memEst = formatearMemoria(state.memEstructurada || {});
+  const memTexto = state.mem || '';
+  let memSection = '';
+  if (memEst) memSection = '\n\nMEMORIA ESTRUCTURADA DEL USUARIO:\n' + memEst;
+  else if (memTexto) memSection = '\n\nLO QUE SABES DEL USUARIO:\n' + memTexto;
+  return SYS_BASE + (agentActivo ? SYS_AGENTE : '') + contextoExtra + memSection;
+}
+
 export async function askNova(text) {
   if (!text || typeof text !== 'string' || !text.trim()) return;
   const cleanText = text.trim();
+  const txtLow = cleanText.toLowerCase();
+
+  if (/^despierta$/i.test(cleanText) || /^wake up$/i.test(cleanText)) {
+    if (window._novaDespertar) { window._novaDespertar(); return; }
+  }
+
+  if (txtLow.includes('modo programacion') || txtLow.includes('modo programación') || txtLow.includes('modo código') || txtLow.includes('modo codigo')) {
+    activarModoProgramacion(); return;
+  }
+  if ((txtLow.includes('salir') || txtLow.includes('desactivar')) && (txtLow.includes('código') || txtLow.includes('codigo') || txtLow.includes('programacion') || txtLow.includes('programación'))) {
+    desactivarModoProgramacion(); return;
+  }
+
+  if (esModoProgamacion()) {
+    addMsg('user', cleanText);
+    showTypingCodigo();
+    if (txtLow.startsWith('contexto:') || txtLow.startsWith('proyecto:')) {
+      setProyectoContexto(cleanText.substring(cleanText.indexOf(':') + 1).trim());
+      rmTyping(); return;
+    }
+    await procesarCodigoConNova(cleanText);
+    return;
+  }
+
+  if (txtLow.includes('mira') || txtLow.includes('qué ves') || txtLow.includes('que ves') || txtLow.includes('por la cámara') || txtLow.includes('por la camara')) {
+    const facingMode = txtLow.includes('trasera') || txtLow.includes('entorno') ? 'environment' : 'user';
+    if (txtLow.includes('texto') || txtLow.includes('lee')) { leerTextoEnCamara(); return; }
+    if (txtLow.includes('persona') || txtLow.includes('quién hay') || txtLow.includes('quien hay')) { identificarPersona(); return; }
+    if (txtLow.includes('entorno') || txtLow.includes('alrededor')) { analizarEntorno(); return; }
+    mirarPorCamara(null, facingMode); return;
+  }
+  if (txtLow.includes('modo vigilante') || txtLow.includes('vigila')) { activarModoVigilante(); return; }
+  if (txtLow.includes('para la cámara') || txtLow.includes('para la camara') || txtLow.includes('cierra la cámara')) { pararCamara(); addMsg('nova', 'Cámara desactivada.'); return; }
 
   detectPanel(cleanText);
   addMsg('user', cleanText);
   state.hist.push({ role: 'user', content: cleanText });
   await saveMsg('user', cleanText);
   state.msgN++;
+  msgsSinExtraer++;
 
   setOrb('thinking');
   showTyping();
   setTargetLevel(0.45);
 
   try {
-    // Si pide info del sistema, obtenerla primero
-    let contextoSistema = '';
+    let contextoExtra = '';
     if (/cpu|ram|memoria|proceso|disco|bateria|sistema/i.test(cleanText) && agentActivo) {
       try {
         const r = await ejecutarAccion('sistema_info', {});
-        contextoSistema = `\n\nINFO SISTEMA ACTUAL: CPU ${r.cpu}% | RAM ${r.ram_usada}/${r.ram_total}GB (${r.ram_pct}%) | Disco libre: ${r.disco_libre}GB`;
+        contextoExtra += `\n\nINFO SISTEMA: CPU ${r.cpu}% | RAM ${r.ram_usada}/${r.ram_total}GB (${r.ram_pct}%) | Disco libre: ${r.disco_libre}GB`;
       } catch (e) {}
     }
+    if (/agenda|calendario|evento|reunion|cita|hoy|mañana|semana/i.test(cleanText)) {
+      if (await calendarDisponible()) {
+        const resumen = await getResumenCalendario();
+        if (resumen) contextoExtra += '\n\nCALENDARIO: ' + resumen;
+      }
+    }
 
-    const sysFull = SYS_BASE
-      + (agentActivo ? SYS_AGENTE : '')
-      + contextoSistema
-      + (state.mem ? '\n\nSABES DEL USUARIO:\n' + state.mem : '');
-
+    const sysFull = buildSystemPrompt(contextoExtra);
     const rawReply = await groqChat(
       [{ role: 'system', content: sysFull }, ...state.hist.slice(-50)],
       'openai/gpt-oss-20b', 1000
     );
 
     const { acciones, textoLimpio } = parsearAccionPC(rawReply);
-    const reply = textoLimpio || rawReply;
+    const reply = (textoLimpio || rawReply).replace(/CREAR_EVENTO:[^\s]+/g, '').trim() || 'Procesando.';
 
     state.hist.push({ role: 'assistant', content: reply });
     await saveMsg('assistant', reply);
     state.msgN++;
-    if (state.msgN % 20 === 0) state.mem = await updateMem(state.hist);
+    msgsSinExtraer++;
+
+    if (msgsSinExtraer >= 6) {
+      msgsSinExtraer = 0;
+      if (state.msgN % 20 === 0) updateMem(state.hist).then(m => { if (m) state.mem = m; });
+      extraerYGuardarMemoria(state.hist, state.memEstructurada).then(async () => {
+        const { loadMemoriaEstructurada } = await import('./api.js');
+        state.memEstructurada = await loadMemoriaEstructurada();
+        console.log('🧠 Memoria actualizada');
+      }).catch(e => console.warn('Extracción memoria:', e));
+    }
 
     rmTyping();
     addMsg('nova', reply);
+
+    const crearMatch = rawReply.match(/CREAR_EVENTO:([^|]+)\|([^|]+)\|([^|]+)(?:\|(\d+))?(?:\|(.+))?/);
+    if (crearMatch) {
+      const [, titulo, fecha, hora, dur, desc] = crearMatch;
+      const ev = await crearEvento(titulo.trim(), fecha.trim(), hora.trim(), parseInt(dur)||60, desc||'');
+      if (ev) addMsg('nova', `✅ Evento creado: ${titulo.trim()}`);
+    }
 
     if (acciones.length > 0 && agentActivo) {
       setOrb('thinking');
       addMsg('nova', `⚡ Ejecutando ${acciones.length} acción${acciones.length > 1 ? 'es' : ''}...`);
       const resultados = await procesarAccionesPC(acciones);
       const fallos = resultados.filter(r => !r.ok);
-      if (fallos.length > 0) {
-        addMsg('nova', `⚠ Fallo en: ${fallos.map(f => f.accion).join(', ')}`);
-      }
+      if (fallos.length > 0) addMsg('nova', `⚠ Fallo en: ${fallos.map(f => f.accion).join(', ')}`);
     }
 
     setOrb('speaking');
-    if (state.audioOn) {
-      state.lastSpokenText = reply;
-      speak(reply);
-    } else {
-      setOrb('idle');
-      setTargetLevel(0);
-    }
+    if (state.audioOn) { state.lastSpokenText = reply; speak(reply); }
+    else { setOrb('idle'); setTargetLevel(0); }
 
   } catch (e) {
     rmTyping();
@@ -187,15 +239,15 @@ export function sendText() {
 }
 
 export async function clearHistory() {
-  if (!confirm('¿Borrar todo el historial?')) return;
+  if (!confirm('¿Borrar todo el historial? La memoria estructurada se conservará.')) return;
   try {
     const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVmbWxvZmJsc2Vwcm9uYnl6aXNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjEzMjAsImV4cCI6MjEwMjUzNzMyMH0.ACFsSthcARANk8zyfeRZiQLeHawVvOAr0cqAzjsZ-1A';
     const SUPA_URL = 'https://ufmlofblsepronbyzish.supabase.co';
     await fetch(SUPA_URL + '/rest/v1/mensajes?id=gt.0', { method: 'DELETE', headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } });
     await fetch(SUPA_URL + '/rest/v1/memoria?id=eq.1', { method: 'PATCH', headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ resumen: '' }) });
   } catch (e) {}
-  state.hist = []; state.mem = ''; state.msgN = 0;
+  state.hist = []; state.mem = ''; state.msgN = 0; msgsSinExtraer = 0;
   const d = document.getElementById('display');
   if (d) d.innerHTML = '<div class="empty">// HISTORIAL BORRADO //</div>';
-  addMsg('nova', 'Historial eliminado.');
+  addMsg('nova', 'Historial eliminado. La memoria de lo que sé de ti se conserva.');
 }
