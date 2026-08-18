@@ -1,6 +1,5 @@
 import { setOrb, setTargetLevel } from './orb.js';
 import { addMsg } from './chat.js';
-import { state } from './state.js';
 import { briefingAutomatico } from './briefing.js';
 
 let wakeMusic = null;
@@ -20,7 +19,7 @@ export async function activarModoDespertar() {
   try {
     await wakeMusic.play();
   } catch (e) {
-    console.warn('No se pudo reproducir wake.mp3:', e);
+    console.error(e);
   }
 
   fadeIn(wakeMusic, 0.55, 1500);
@@ -28,8 +27,8 @@ export async function activarModoDespertar() {
   await new Promise(r => setTimeout(r, 2000));
 
   addMsg('nova', '// SISTEMAS ACTIVOS — INICIANDO BRIEFING //');
+  window._novaHablando = true;
   briefingAutomatico();
-  await new Promise(r => setTimeout(r, 25000));
 
   const esperarAudio = setInterval(() => {
     if (!window._novaHablando) {
