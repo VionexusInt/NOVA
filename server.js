@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const openai = new OpenAI({ apiKey: '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' });
+const openai = new OpenAI({ apiKey: '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' });
 
 app.post('/api/tts', async (req, res) => {
   const text = req.body?.text;
