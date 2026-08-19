@@ -36,32 +36,37 @@ async function getWeather(ciudad) {
     const desc = cur.weatherDesc[0].value;
     const feels = cur.FeelsLikeC;
     return `${city}: ${desc}, ${tempC}°C, sensación ${feels}°C.`;
-  } catch (e) { return null; }
+  } catch (e) { 
+    console.warn('⚠️ Error obteniendo clima:', e);
+    return null; 
+  }
 }
 
 async function getNews() {
+  console.log('📰 Solicitando noticias al backend...');
   try {
     const r = await fetch('http://localhost:4000/api/noticias', {
       signal: AbortSignal.timeout(15000)
     });
+    console.log('📰 Respuesta del backend:', r.status);
     if (!r.ok) {
-      console.warn('⚠️ Proxy de noticias respondió con error:', r.status);
+      console.warn('⚠️ Backend respondió con error:', r.status);
       return null;
     }
     const data = await r.json();
-    if (data.ok && data.titulos && data.titulos.length > 0) {
-      const titulosFiltrados = data.titulos.filter(t => 
-        !t.includes('Error') && 
-        !t.includes('no disponible') &&
-        t.length > 10
+    console.log('📰 Datos recibidos:', data);
+    if (data.titulos && data.titulos.length > 0) {
+      const titulosValidos = data.titulos.filter(t => 
+        t && typeof t === 'string' && t.length > 5
       );
-      if (titulosFiltrados.length > 0) {
-        return titulosFiltrados.join(' · ');
+      console.log('📰 Títulos válidos:', titulosValidos.length);
+      if (titulosValidos.length > 0) {
+        return titulosValidos.join(' · ');
       }
     }
     return null;
   } catch (e) {
-    console.warn('⚠️ Error obteniendo noticias del proxy:', e.message);
+    console.error('❌ Error obteniendo noticias:', e);
     return null;
   }
 }
@@ -87,7 +92,10 @@ async function seccionEstado(momento, memEst, memTexto) {
       role: 'user',
       content: (memEst || memTexto || 'Sin datos.').substring(0, 150)
     }], 'openai/gpt-oss-20b', 60);
-  } catch (e) { return `Sistemas activos. Buenas ${momento}.`; }
+  } catch (e) { 
+    console.warn('⚠️ Error en seccionEstado:', e);
+    return `Sistemas activos. Buenas ${momento}.`; 
+  }
 }
 
 async function seccionTareas(tareas, urgentes) {
@@ -106,6 +114,7 @@ async function seccionTareas(tareas, urgentes) {
       content: `Eres NOVA, IA JARVIS. Resume las tareas en 1 frase concisa. ${prompt}`
     }, { role: 'user', content: lista }], 'openai/gpt-oss-20b', 70);
   } catch (e) {
+    console.warn('⚠️ Error en seccionTareas:', e);
     return `${total} tareas pendientes.${nUrgentes > 0 ? ' ' + nUrgentes + ' urgentes.' : ''}`;
   }
 }
@@ -122,7 +131,10 @@ async function seccionCalendario(eventosHoy) {
       role: 'system',
       content: 'Eres NOVA, IA JARVIS. Informa la agenda en 1 frase. Hora y evento más importante.'
     }, { role: 'user', content: txt }], 'openai/gpt-oss-20b', 60);
-  } catch (e) { return `${eventosHoy.length} eventos hoy.`; }
+  } catch (e) { 
+    console.warn('⚠️ Error en seccionCalendario:', e);
+    return `${eventosHoy.length} eventos hoy.`; 
+  }
 }
 
 async function seccionClima(ciudad) {
@@ -130,10 +142,13 @@ async function seccionClima(ciudad) {
 }
 
 async function seccionNoticias(memEst) {
+  console.log('🗞️ Obteniendo noticias...');
   const titulos = await getNews();
   if (!titulos) {
-    return 'No hay noticias disponibles en este momento. Consulta tus fuentes habituales.';
+    console.warn('⚠️ No se obtuvieron noticias del backend');
+    return 'No hay noticias disponibles en este momento.';
   }
+  console.log('✅ Títulos obtenidos:', titulos.substring(0, 100) + '...');
   const mem = state.memEstructurada || {};
   const intereses = getInteresesUsuario(mem);
   let filtroContexto = '';
@@ -141,12 +156,17 @@ async function seccionNoticias(memEst) {
     filtroContexto = ` Intereses del usuario: ${intereses.join(', ')}. Prioriza noticias relacionadas con estos temas.`;
   }
   try {
-    return await groqChat([{
+    console.log('🤖 Pidiendo a la IA que resuma las noticias...');
+    const resumen = await groqChat([{
       role: 'user',
       content: `Resume en 2-3 frases en español estas noticias locales de Elche/Alicante y nacionales de hoy. Enfócate en lo más relevante para un residente de Elche.${filtroContexto}\n\n${titulos.substring(0, 500)}`
     }], 'openai/gpt-oss-20b', 120);
+    console.log('✅ Resumen generado:', resumen.substring(0, 100) + '...');
+    return resumen;
   } catch (e) { 
-    return `En las noticias de hoy: ${titulos.substring(0, 200)}`; 
+    console.warn('⚠️ Error al resumir noticias con IA:', e);
+    const titulosCortos = titulos.split(' · ').slice(0, 3).join('. ');
+    return `En las noticias de hoy: ${titulosCortos}.`;
   }
 }
 
@@ -172,6 +192,7 @@ function getCiudad(memEst, memTexto) {
 }
 
 export async function briefingAutomatico() {
+  console.log('🚀 Iniciando briefing automático...');
   const h = new Date().getHours();
   const momento = h < 12 ? 'mañana' : h < 20 ? 'tarde' : 'noche';
   const memEst = formatearMemoria(state.memEstructurada || {});
@@ -179,32 +200,56 @@ export async function briefingAutomatico() {
   const tareas = state.tasks.filter(t => !t.done);
   const urgentes = tareas.filter(t => t.p === 'u');
   const ciudad = getCiudad(memEst, memTexto);
+  
+  console.log(`📍 Ciudad detectada: ${ciudad}`);
+  console.log(`🕐 Momento: ${momento}`);
+  console.log(`📋 Tareas: ${tareas.length} (${urgentes.length} urgentes)`);
+  
   let eventosHoy = [];
   if (await calendarDisponible()) {
-    try { eventosHoy = await getEventosHoy(); } catch (e) {}
+    try { eventosHoy = await getEventosHoy(); } catch (e) {
+      console.warn('⚠️ Error obteniendo eventos:', e);
+    }
   }
+  
+  console.log(`📅 Eventos hoy: ${eventosHoy.length}`);
+  
   const estado = await seccionEstado(momento, memEst, memTexto);
   await decir(estado);
+  
+  console.log('⏳ Obteniendo tareas, calendario, clima y noticias en paralelo...');
+  
   const [tareasTxt, calTxt, climaTxt, noticiasTxt] = await Promise.allSettled([
     tareas.length > 0 ? seccionTareas(tareas, urgentes) : Promise.resolve(null),
     eventosHoy.length > 0 ? seccionCalendario(eventosHoy) : Promise.resolve(null),
     seccionClima(ciudad),
     seccionNoticias(memEst)
   ]);
+  
+  console.log('✅ Todas las secciones procesadas');
+  
   const get = r => r.status === 'fulfilled' ? r.value : null;
+  
   if (get(tareasTxt)) await decir(get(tareasTxt));
   if (get(calTxt)) await decir(get(calTxt));
   if (get(climaTxt)) await decir(get(climaTxt));
-  if (get(noticiasTxt)) await decir(get(noticiasTxt));
+  if (get(noticiasTxt)) {
+    console.log('📰 Diciendo noticias...');
+    await decir(get(noticiasTxt));
+  }
+  
   const partes = [];
   if (tareas.length > 0) {
     partes.push(`${tareas.length} tarea${tareas.length > 1 ? 's' : ''}`);
     if (urgentes.length > 0) partes.push(`(${urgentes.length} urgente${urgentes.length > 1 ? 's' : ''})`);
   }
   if (eventosHoy.length > 0) partes.push(`${eventosHoy.length} evento${eventosHoy.length > 1 ? 's' : ''}`);
+  
   const resumen = partes.length > 0
     ? `Briefing completado: ${partes.join(', ')}`
     : 'Briefing completado. Sin tareas ni eventos pendientes.';
+  
+  console.log('✅ Briefing finalizado');
   notificarWindows('NOVA — Briefing', resumen);
 }
 
