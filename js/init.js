@@ -113,8 +113,10 @@ async function initApp() {
     setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
   }
 
-  // Briefing después de mostrar la pantalla
-  setTimeout(() => briefingAutomatico().catch(console.warn), 1000);
+  setTimeout(async () => {
+  const { saludarAlIniciar } = await import('./saludos.js');
+  await saludarAlIniciar();
+}, 3000);
 }
 
 initApp();

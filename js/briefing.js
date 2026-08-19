@@ -18,7 +18,11 @@ async function notificarWindows(titulo, mensaje) {
 }
 
 async function decir(texto) {
-  if (!texto) return;
+  if (!texto || !texto.trim()) {
+    console.warn('⚠️ decir() recibió texto vacío');
+    return;
+  }
+  console.log('💬 Diciendo:', texto.substring(0, 80) + '...');
   addMsg('nova', texto);
   if (state.audioOn) await speakAndWait(texto);
   await new Promise(r => setTimeout(r, 300));
@@ -144,30 +148,42 @@ async function seccionClima(ciudad) {
 async function seccionNoticias(memEst) {
   console.log('🗞️ Obteniendo noticias...');
   const titulos = await getNews();
-  if (!titulos) {
+  
+  if (!titulos || titulos.trim() === '') {
     console.warn('⚠️ No se obtuvieron noticias del backend');
     return 'No hay noticias disponibles en este momento.';
   }
+  
   console.log('✅ Títulos obtenidos:', titulos.substring(0, 100) + '...');
+  
   const mem = state.memEstructurada || {};
   const intereses = getInteresesUsuario(mem);
   let filtroContexto = '';
   if (intereses.length > 0) {
     filtroContexto = ` Intereses del usuario: ${intereses.join(', ')}. Prioriza noticias relacionadas con estos temas.`;
   }
+  
+  let resumen = '';
   try {
     console.log('🤖 Pidiendo a la IA que resuma las noticias...');
-    const resumen = await groqChat([{
+    resumen = await groqChat([{
       role: 'user',
       content: `Resume en 2-3 frases en español estas noticias locales de Elche/Alicante y nacionales de hoy. Enfócate en lo más relevante para un residente de Elche.${filtroContexto}\n\n${titulos.substring(0, 500)}`
     }], 'openai/gpt-oss-20b', 120);
-    console.log('✅ Resumen generado:', resumen.substring(0, 100) + '...');
-    return resumen;
+    
+    console.log('✅ Resumen generado:', resumen ? resumen.substring(0, 100) + '...' : '(vacío)');
+    
+    if (!resumen || resumen.trim() === '') {
+      console.warn('⚠️ La IA devolvió un resumen vacío, usando fallback');
+      throw new Error('Resumen vacío');
+    }
   } catch (e) { 
     console.warn('⚠️ Error al resumir noticias con IA:', e);
     const titulosCortos = titulos.split(' · ').slice(0, 3).join('. ');
-    return `En las noticias de hoy: ${titulosCortos}.`;
+    resumen = `En las noticias de hoy: ${titulosCortos}.`;
   }
+  
+  return resumen;
 }
 
 function getCiudad(memEst, memTexto) {
@@ -227,15 +243,25 @@ export async function briefingAutomatico() {
   ]);
   
   console.log('✅ Todas las secciones procesadas');
+  console.log('📊 Resultados:', {
+    tareas: tareasTxt.status,
+    calendario: calTxt.status,
+    clima: climaTxt.status,
+    noticias: noticiasTxt.status
+  });
   
   const get = r => r.status === 'fulfilled' ? r.value : null;
   
   if (get(tareasTxt)) await decir(get(tareasTxt));
   if (get(calTxt)) await decir(get(calTxt));
   if (get(climaTxt)) await decir(get(climaTxt));
-  if (get(noticiasTxt)) {
+  
+  const noticias = get(noticiasTxt);
+  if (noticias && noticias.trim() !== '') {
     console.log('📰 Diciendo noticias...');
-    await decir(get(noticiasTxt));
+    await decir(noticias);
+  } else {
+    console.warn('⚠️ No hay noticias para decir (vacías o null)');
   }
   
   const partes = [];

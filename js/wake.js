@@ -1,30 +1,17 @@
 import { briefingAutomatico } from './briefing.js';
-import { setOrb, setTargetLevel } from './orb.js';
+import { setOrb, setTargetLevel, triggerCinematicSequence } from './orb.js';
 import { addMsg } from './chat.js';
 
 let wakeMusic = null;
 let wakeActive = false;
 
-async function efectoActivacionVisual() {
-  setOrb('thinking');
-  setTargetLevel(0.3);
-  await new Promise(r => setTimeout(r, 200));
-  
-  setTargetLevel(0.9);
-  await new Promise(r => setTimeout(r, 300));
-  
-  setTargetLevel(0.5);
-  await new Promise(r => setTimeout(r, 200));
-  
-  setTargetLevel(0.8);
-  await new Promise(r => setTimeout(r, 400));
-}
-
 export async function activarModoDespertar() {
   if (wakeActive) return;
   wakeActive = true;
   
-  await efectoActivacionVisual();
+  console.log('🎬 Iniciando secuencia cinematográfica...');
+  
+  triggerCinematicSequence();
   
   wakeMusic = new Audio('/wake.mp3');
   wakeMusic.volume = 0;
@@ -36,14 +23,17 @@ export async function activarModoDespertar() {
     console.warn('No se pudo reproducir wake.mp3:', e);
   }
   
-  fadeIn(wakeMusic, 0.45, 1800);
+  fadeIn(wakeMusic, 0.25, 2500);
   
-  await new Promise(r => setTimeout(r, 1500));
+  await new Promise(r => setTimeout(r, 2000));
+  
   addMsg('nova', '// SISTEMAS EN LÍNEA — INICIANDO BRIEFING //');
+  
+  await new Promise(r => setTimeout(r, 500));
   
   await briefingAutomatico();
   
-  fadeOut(wakeMusic, 2500, () => {
+  fadeOut(wakeMusic, 3000, () => {
     wakeMusic.pause();
     wakeMusic = null;
     wakeActive = false;
@@ -53,7 +43,7 @@ export async function activarModoDespertar() {
 }
 
 function fadeIn(audio, targetVol, ms) {
-  const steps = 30;
+  const steps = 40;
   const interval = ms / steps;
   const increment = targetVol / steps;
   let vol = 0;
@@ -65,7 +55,7 @@ function fadeIn(audio, targetVol, ms) {
 }
 
 function fadeOut(audio, ms, cb) {
-  const steps = 30;
+  const steps = 40;
   const interval = ms / steps;
   const decrement = audio.volume / steps;
   const timer = setInterval(() => {
