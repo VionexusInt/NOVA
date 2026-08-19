@@ -5,32 +5,45 @@ import { addMsg } from './chat.js';
 let wakeMusic = null;
 let wakeActive = false;
 
+async function efectoActivacionVisual() {
+  setOrb('thinking');
+  setTargetLevel(0.3);
+  await new Promise(r => setTimeout(r, 200));
+  
+  setTargetLevel(0.9);
+  await new Promise(r => setTimeout(r, 300));
+  
+  setTargetLevel(0.5);
+  await new Promise(r => setTimeout(r, 200));
+  
+  setTargetLevel(0.8);
+  await new Promise(r => setTimeout(r, 400));
+}
+
 export async function activarModoDespertar() {
   if (wakeActive) return;
   wakeActive = true;
-
-  setOrb('thinking');
-  setTargetLevel(0.8);
-
+  
+  await efectoActivacionVisual();
+  
   wakeMusic = new Audio('/wake.mp3');
   wakeMusic.volume = 0;
   wakeMusic.loop = false;
-
+  
   try {
     await wakeMusic.play();
   } catch (e) {
     console.warn('No se pudo reproducir wake.mp3:', e);
   }
-
-  fadeIn(wakeMusic, 0.55, 1500);
-
-  await new Promise(r => setTimeout(r, 2000));
-
-  addMsg('nova', '// SISTEMAS ACTIVOS — INICIANDO BRIEFING //');
-
+  
+  fadeIn(wakeMusic, 0.45, 1800);
+  
+  await new Promise(r => setTimeout(r, 1500));
+  addMsg('nova', '// SISTEMAS EN LÍNEA — INICIANDO BRIEFING //');
+  
   await briefingAutomatico();
-
-  fadeOut(wakeMusic, 2000, () => {
+  
+  fadeOut(wakeMusic, 2500, () => {
     wakeMusic.pause();
     wakeMusic = null;
     wakeActive = false;

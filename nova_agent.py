@@ -12,34 +12,300 @@ import platform
 import shutil
 import glob
 import signal
+import urllib.request
+import xml.etree.ElementTree as ET
+import difflib
+import uuid
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+# ══════════════════════════════════════════
+# SISTEMA DE NOTIFICACIONES WINDOWS
+# ══════════════════════════════════════════
+NOTIFICACIONES_WINDOWS_OK = False
+_notif_engine = None
+
+# Intentar winotify (más estable y moderno)
 try:
-    from win10toast_click import ToastNotifier
-    _toaster = ToastNotifier()
+    from winotify import Notification
     NOTIFICACIONES_WINDOWS_OK = True
+    _notif_engine = 'winotify'
 except ImportError:
-    _toaster = None
-    NOTIFICACIONES_WINDOWS_OK = False
+    pass
+
+# Fallback a win10toast_click
+if not NOTIFICACIONES_WINDOWS_OK:
+    try:
+        from win10toast_click import ToastNotifier
+        _toaster = ToastNotifier()
+        NOTIFICACIONES_WINDOWS_OK = True
+        _notif_engine = 'win10toast'
+    except ImportError:
+        _toaster = None
+        NOTIFICACIONES_WINDOWS_OK = False
+
+print(f"🔔 Motor de notificaciones: {_notif_engine or 'NINGUNO'}")
 
 app = Flask(__name__)
 CORS(app)
-
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.2
 
-# Rutas base
 HOME = Path.home()
 DESKTOP = HOME / "Desktop"
 DOCUMENTS = HOME / "Documents"
 DOWNLOADS = HOME / "Downloads"
 
 # ══════════════════════════════════════════
+# RUTA BASE DEL PROYECTO NOVA
+# ══════════════════════════════════════════
+NOVA_ROOT = Path(__file__).parent.resolve()
+
+ARCHIVOS_AUTOMEJORA = [
+    'js/agent.js', 'js/api.js', 'js/audio.js', 'js/briefing.js', 'js/calendar.js',
+    'js/chat.js', 'js/email.js', 'js/helpers.js', 'js/init.js',
+    'js/marketing.js', 'js/mejora.js', 'js/memoria.js', 'js/mic.js', 'js/orb.js',
+    'js/paneles.js', 'js/programacion.js', 'js/state.js', 'js/tareas.js',
+    'js/vision.js', 'js/wake.js', 'css/estilos.css', 'index.html',
+    'nova_agent.py', 'piper_server.py',
+]
+
+# Almacenamiento en memoria de propuestas pendientes
+# {id: {archivo, contenido_nuevo, descripcion, timestamp}}
+propuestas_pendientes = {}
+
+# Directorio de backups
+BACKUPS_DIR = NOVA_ROOT / '_backups_automejora'
+BACKUPS_DIR.mkdir(exist_ok=True)
+
+
+# ══════════════════════════════════════════
+# SISTEMA DE AUTO-MEJORA
+# ══════════════════════════════════════════
+
+def _resolver_ruta_archivo(archivo):
+    """Convierte 'js/briefing.js' a una Path absoluta segura."""
+    if not archivo or not isinstance(archivo, str):
+        return None
+    archivo = archivo.strip().strip('"\'`').replace('\\', '/')
+    if archivo.startswith('./'):
+        archivo = archivo[2:]
+    if archivo not in ARCHIVOS_AUTOMEJORA:
+        return None
+    ruta = (NOVA_ROOT / archivo).resolve()
+    try:
+        ruta.relative_to(NOVA_ROOT)
+    except ValueError:
+        return None
+    return ruta
+
+
+def _generar_diff(original, nuevo, archivo):
+    """Genera un diff unificado legible."""
+    try:
+        orig_lines = original.splitlines(keepends=True)
+        new_lines = nuevo.splitlines(keepends=True)
+        diff = difflib.unified_diff(
+            orig_lines, new_lines,
+            fromfile=f'a/{archivo}', tofile=f'b/{archivo}',
+            lineterm='', n=3
+        )
+        return ''.join(diff)
+    except Exception:
+        return ''
+
+
+def _crear_backup(ruta_archivo, archivo_nombre):
+    """Crea un backup con timestamp antes de sobrescribir."""
+    try:
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_nombre = f"{ts}__{archivo_nombre.replace('/', '__')}"
+        backup_path = BACKUPS_DIR / backup_nombre
+        shutil.copy2(ruta_archivo, backup_path)
+        # Mantener solo los últimos 10 backups por archivo
+        archivos_backup = sorted(BACKUPS_DIR.glob(f"*__{archivo_nombre.replace('/', '__')}"))
+        for viejo in archivos_backup[:-10]:
+            try:
+                viejo.unlink()
+            except Exception:
+                pass
+        return str(backup_path)
+    except Exception as e:
+        print(f"⚠️ Error creando backup: {e}")
+        return None
+
+
+@app.route('/api/mejora/leer', methods=['POST'])
+def mejora_leer():
+    """Lee el contenido actual de un archivo del proyecto."""
+    try:
+        data = request.get_json() or {}
+        archivo = data.get('archivo', '')
+        ruta = _resolver_ruta_archivo(archivo)
+        if not ruta:
+            return jsonify({'ok': False, 'error': f'Archivo no permitido o inexistente: {archivo}'}), 400
+        if not ruta.exists():
+            return jsonify({'ok': False, 'error': f'El archivo no existe: {ruta}'}), 404
+        contenido = ruta.read_text(encoding='utf-8')
+        print(f"📖 Leyendo {archivo} ({len(contenido)} caracteres)")
+        return jsonify({'ok': True, 'archivo': archivo, 'contenido': contenido})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mejora/proponer', methods=['POST'])
+def mejora_proponer():
+    """Registra una propuesta de cambio y calcula el diff."""
+    try:
+        data = request.get_json() or {}
+        archivo = data.get('archivo', '')
+        contenido_nuevo = data.get('contenido_nuevo', '')
+        descripcion = data.get('descripcion', 'Mejora de código')
+        ruta = _resolver_ruta_archivo(archivo)
+        if not ruta:
+            return jsonify({'ok': False, 'error': f'Archivo no permitido: {archivo}'}), 400
+        if not ruta.exists():
+            return jsonify({'ok': False, 'error': f'El archivo no existe: {ruta}'}), 404
+        if not contenido_nuevo or not contenido_nuevo.strip():
+            return jsonify({'ok': False, 'error': 'Contenido nuevo vacío'}), 400
+        contenido_actual = ruta.read_text(encoding='utf-8')
+        if contenido_actual.strip() == contenido_nuevo.strip():
+            return jsonify({'ok': True, 'lineas_cambiadas': 0, 'mensaje': 'Sin cambios reales'})
+        diff = _generar_diff(contenido_actual, contenido_nuevo, archivo)
+        lineas_cambiadas = diff.count('\n+') + diff.count('\n-')
+        lineas_cambiadas = max(lineas_cambiadas, 1) if diff else 1
+        propuesta_id = str(uuid.uuid4())[:8]
+        propuestas_pendientes[propuesta_id] = {
+            'archivo': archivo,
+            'ruta': str(ruta),
+            'contenido_nuevo': contenido_nuevo,
+            'descripcion': descripcion,
+            'timestamp': datetime.now().isoformat(),
+            'diff': diff,
+        }
+        print(f"📝 Propuesta {propuesta_id} creada para {archivo}")
+        return jsonify({
+            'ok': True,
+            'propuesta_id': propuesta_id,
+            'archivo': archivo,
+            'descripcion': descripcion,
+            'lineas_cambiadas': lineas_cambiadas,
+            'diff': diff[:5000],
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mejora/aprobar', methods=['POST'])
+def mejora_aprobar():
+    """Aplica una propuesta: crea backup y sobrescribe el archivo."""
+    try:
+        data = request.get_json() or {}
+        propuesta_id = data.get('propuesta_id', '')
+        if propuesta_id not in propuestas_pendientes:
+            return jsonify({'ok': False, 'error': f'Propuesta {propuesta_id} no encontrada o expirada'}), 404
+        propuesta = propuestas_pendientes[propuesta_id]
+        archivo = propuesta['archivo']
+        ruta = Path(propuesta['ruta'])
+        if not ruta.exists():
+            return jsonify({'ok': False, 'error': f'El archivo ya no existe: {ruta}'}), 404
+        backup_path = _crear_backup(ruta, archivo)
+        try:
+            ruta.write_text(propuesta['contenido_nuevo'], encoding='utf-8')
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'Error escribiendo archivo: {e}'}), 500
+        del propuestas_pendientes[propuesta_id]
+        print(f"✅ Mejora aplicada en {archivo} (backup: {backup_path})")
+        notificar_windows(
+            'NOVA — Mejora aplicada',
+            f'Archivo actualizado: {archivo}. Reinicia NOVA para ver los cambios.'
+        )
+        return jsonify({
+            'ok': True,
+            'archivo': archivo,
+            'backup': backup_path,
+            'mensaje': f'Mejora aplicada en {archivo}. Reinicia NOVA para que surta efecto.',
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mejora/rechazar', methods=['POST'])
+def mejora_rechazar():
+    """Descarta una propuesta sin aplicar cambios."""
+    try:
+        data = request.get_json() or {}
+        propuesta_id = data.get('propuesta_id', '')
+        if propuesta_id in propuestas_pendientes:
+            archivo = propuestas_pendientes[propuesta_id]['archivo']
+            del propuestas_pendientes[propuesta_id]
+            print(f"❌ Propuesta {propuesta_id} rechazada ({archivo})")
+            return jsonify({'ok': True, 'archivo': archivo, 'mensaje': 'Propuesta descartada'})
+        return jsonify({'ok': True, 'mensaje': 'Propuesta no encontrada (ya había sido gestionada)'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mejora/revertir', methods=['POST'])
+def mejora_revertir():
+    """Restaura el último backup de un archivo."""
+    try:
+        data = request.get_json() or {}
+        archivo = data.get('archivo', '')
+        ruta = _resolver_ruta_archivo(archivo)
+        if not ruta:
+            return jsonify({'ok': False, 'error': f'Archivo no permitido: {archivo}'}), 400
+        sufijo = archivo.replace('/', '__')
+        backups = sorted(BACKUPS_DIR.glob(f"*__{sufijo}"), reverse=True)
+        if not backups:
+            return jsonify({'ok': False, 'error': f'No hay backups disponibles de {archivo}'}), 404
+        ultimo_backup = backups[0]
+        try:
+            shutil.copy2(ultimo_backup, ruta)
+            print(f"⏪ {archivo} revertido desde {ultimo_backup.name}")
+            return jsonify({
+                'ok': True,
+                'archivo': archivo,
+                'backup_usado': ultimo_backup.name,
+                'mensaje': f'{archivo} restaurado desde backup. Reinicia NOVA.',
+            })
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'Error restaurando: {e}'}), 500
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/mejora/lista_archivos', methods=['GET'])
+def mejora_lista_archivos():
+    """Lista los archivos que la IA puede modificar."""
+    existentes = []
+    for a in ARCHIVOS_AUTOMEJORA:
+        ruta = NOVA_ROOT / a
+        if ruta.exists():
+            existentes.append({
+                'archivo': a,
+                'tamano': ruta.stat().st_size,
+                'modificado': datetime.fromtimestamp(ruta.stat().st_mtime).isoformat()
+            })
+    backups = list(BACKUPS_DIR.iterdir()) if BACKUPS_DIR.exists() else []
+    return jsonify({
+        'ok': True,
+        'archivos': existentes,
+        'total_backups': len(backups),
+        'propuestas_pendientes': len(propuestas_pendientes),
+    })
+
+
+# ══════════════════════════════════════════
 # MONITORIZACIÓN DEL SISTEMA
 # ══════════════════════════════════════════
+
 def get_system_info():
     try:
         import psutil
@@ -47,21 +313,18 @@ def get_system_info():
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
         battery = psutil.sensors_battery() if hasattr(psutil, 'sensors_battery') else None
-        
-        # Top procesos por CPU
         procs = sorted(
             [p.info for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent'])
-             if p.info['cpu_percent'] > 0],
+            if p.info['cpu_percent'] > 0],
             key=lambda x: x['cpu_percent'], reverse=True
         )[:5]
-        
         return {
             'cpu': round(cpu, 1),
-            'ram_usada': round(ram.used / 1e9, 1),
-            'ram_total': round(ram.total / 1e9, 1),
+            'ram_usada': round(ram.used/1e9, 1),
+            'ram_total': round(ram.total/1e9, 1),
             'ram_pct': ram.percent,
-            'disco_libre': round(disk.free / 1e9, 1),
-            'disco_total': round(disk.total / 1e9, 1),
+            'disco_libre': round(disk.free/1e9, 1),
+            'disco_total': round(disk.total/1e9, 1),
             'bateria': round(battery.percent) if battery else None,
             'cargando': battery.power_plugged if battery else None,
             'procesos_top': procs,
@@ -91,7 +354,7 @@ def matar_proceso(nombre_o_pid):
         for p in psutil.process_iter(['pid', 'name']):
             try:
                 if str(p.info['pid']) == str(nombre_o_pid) or \
-                   nombre_o_pid.lower() in p.info['name'].lower():
+                    nombre_o_pid.lower() in p.info['name'].lower():
                     p.kill()
                     killed.append(p.info['name'])
             except:
@@ -100,9 +363,6 @@ def matar_proceso(nombre_o_pid):
     except ImportError:
         return "psutil no instalado"
 
-# ══════════════════════════════════════════
-# GESTIÓN DE ARCHIVOS Y CARPETAS
-# ══════════════════════════════════════════
 def listar_carpeta(ruta=None):
     if not ruta:
         ruta = DESKTOP
@@ -155,9 +415,6 @@ def abrir_carpeta(ruta=None):
     subprocess.Popen(f'explorer "{ruta}"', shell=True)
     return f"Abriendo carpeta: {ruta}"
 
-# ══════════════════════════════════════════
-# CONTROL DE VENTANAS Y APLICACIONES
-# ══════════════════════════════════════════
 def listar_ventanas():
     try:
         import pygetwindow as gw
@@ -214,9 +471,6 @@ def maximizar_ventana(titulo=None):
     pyautogui.hotkey('win', 'up')
     return "Ventana maximizada"
 
-# ══════════════════════════════════════════
-# ACCIONES BÁSICAS PC
-# ══════════════════════════════════════════
 def abrir_programa(nombre):
     programas = {
         'chrome': 'chrome', 'google chrome': 'chrome',
@@ -283,19 +537,14 @@ def volumen(accion):
         return f"Volumen: {accion}"
     return "Acción desconocida"
 
-# ══════════════════════════════════════════
-# CREACIÓN DE DOCUMENTOS
-# ══════════════════════════════════════════
 def crear_word(nombre, contenido):
     try:
         from docx import Document
         from docx.shared import Pt
         from docx.enum.text import WD_ALIGN_PARAGRAPH
-
         doc = Document()
         t = doc.add_heading(nombre, 0)
         t.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
         if isinstance(contenido, list):
             for item in contenido:
                 tipo = item.get('tipo', 'parrafo')
@@ -312,12 +561,11 @@ def crear_word(nombre, contenido):
                         tbl = doc.add_table(rows=len(filas), cols=len(filas[0]))
                         tbl.style = 'Table Grid'
                         for i, fila in enumerate(filas):
-                            for j, cel in enumerate(fila):
-                                tbl.rows[i].cells[j].text = str(cel)
+                            for j, celda in enumerate(fila):
+                                tbl.rows[i].cells[j].text = str(celda)
         else:
-            for linea in str(contenido).split('\\n'):
+            for linea in str(contenido).split('\n'):
                 doc.add_paragraph(linea)
-
         ruta = DESKTOP / f"{nombre}.docx"
         doc.save(str(ruta))
         subprocess.Popen(f'start "" "{ruta}"', shell=True)
@@ -331,12 +579,10 @@ def crear_pdf(nombre, contenido):
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
         from reportlab.lib.units import cm
-
         ruta = DESKTOP / f"{nombre}.pdf"
         doc = SimpleDocTemplate(str(ruta), pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
         styles = getSampleStyleSheet()
         story = [Paragraph(nombre, styles['Title']), Spacer(1, 12)]
-
         if isinstance(contenido, list):
             for item in contenido:
                 tipo = item.get('tipo', 'parrafo')
@@ -347,13 +593,12 @@ def crear_pdf(nombre, contenido):
                 elif tipo == 'lista':
                     for p in item.get('items', []):
                         story.append(Paragraph(f"• {p}", styles['Normal']))
-                story.append(Spacer(1, 8))
+                    story.append(Spacer(1, 8))
         else:
-            for linea in str(contenido).split('\\n'):
+            for linea in str(contenido).split('\n'):
                 if linea.strip():
                     story.append(Paragraph(linea, styles['Normal']))
-                    story.append(Spacer(1, 4))
-
+                story.append(Spacer(1, 4))
         doc.build(story)
         subprocess.Popen(f'start "" "{ruta}"', shell=True)
         return f"PDF creado: {nombre}.pdf"
@@ -364,27 +609,22 @@ def crear_imagen(nombre, texto, ancho=1920, alto=1080, bg='#000810', color='#00d
     try:
         from PIL import Image, ImageDraw, ImageFont
         import textwrap
-
         img = Image.new('RGB', (int(ancho), int(alto)), color=bg)
         draw = ImageDraw.Draw(img)
-
         try:
-            font = ImageFont.truetype("arial.ttf", int(alto * 0.04))
-            font_big = ImageFont.truetype("arialbd.ttf", int(alto * 0.07))
+            font = ImageFont.truetype("arial.ttf", int(alto*0.04))
+            font_big = ImageFont.truetype("arialbd.ttf", int(alto*0.07))
         except:
             font = ImageFont.load_default()
             font_big = font
-
         r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
-        
         lines = textwrap.wrap(texto, width=35)
-        y = alto // 2 - len(lines) * int(alto * 0.05)
+        y = alto//2 - len(lines) * int(alto*0.05)
         for i, line in enumerate(lines):
-            bbox = draw.textbbox((0, 0), line, font=font_big if i == 0 else font)
+            bbox = draw.textbbox((0, 0), line, font=font_big if i==0 else font)
             w = bbox[2] - bbox[0]
-            draw.text(((ancho - w) // 2, y), line, fill=(r, g, b), font=font_big if i == 0 else font)
-            y += int(alto * 0.08) if i == 0 else int(alto * 0.055)
-
+            draw.text(((ancho-w) //2, y), line, fill=(r, g, b), font=font_big if i==0 else font)
+            y += int(alto*0.08) if i==0 else int(alto*0.055)
         ruta = DESKTOP / f"{nombre}.png"
         img.save(str(ruta))
         subprocess.Popen(f'start "" "{ruta}"', shell=True)
@@ -395,14 +635,11 @@ def crear_imagen(nombre, texto, ancho=1920, alto=1080, bg='#000810', color='#00d
 def ejecutar_cmd(cmd):
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-        return result.stdout or result.stderr or "Ejecutado"
+        return result.stdout or result.stderr
     except Exception as e:
         return str(e)
 
-# ══════════════════════════════════════════
-# AUTOMATIZACIONES
-# ══════════════════════════════════════════
-automatizaciones = {}  # nombre -> {condicion, accion, activa}
+automatizaciones = {}
 
 def crear_automatizacion(nombre, condicion_tipo, condicion_valor, accion_tipo, accion_valor):
     automatizaciones[nombre] = {
@@ -426,7 +663,6 @@ def eliminar_automatizacion(nombre):
         return f"Eliminada: {nombre}"
     return f"No encontrada: {nombre}"
 
-# Monitor de automatizaciones en background
 def monitor_automatizaciones():
     while True:
         try:
@@ -437,7 +673,6 @@ def monitor_automatizaciones():
                 tipo = auto['condicion_tipo']
                 valor = auto['condicion_valor']
                 disparar = False
-
                 if tipo == 'cpu_mayor':
                     if psutil.cpu_percent() > float(valor):
                         disparar = True
@@ -447,7 +682,6 @@ def monitor_automatizaciones():
                 elif tipo == 'hora':
                     if datetime.now().strftime('%H:%M') == valor:
                         disparar = True
-
                 if disparar:
                     accion = auto['accion_tipo']
                     aval = auto['accion_valor']
@@ -457,12 +691,11 @@ def monitor_automatizaciones():
                         abrir_programa(aval)
                     elif accion == 'notificar':
                         notificar_frontend(nombre, aval)
-                    auto['activa'] = False  # evitar loop
+                    auto['activa'] = False
         except:
             pass
         time.sleep(10)
 
-# Canal de notificaciones proactivas al frontend
 notificaciones_pendientes = []
 
 def notificar_frontend(titulo, mensaje, tambien_windows=True):
@@ -474,13 +707,7 @@ def notificar_frontend(titulo, mensaje, tambien_windows=True):
     if tambien_windows:
         notificar_windows(titulo, mensaje)
 
-
 def notificar_windows(titulo, mensaje, duracion=8):
-    """
-    Muestra una notificación nativa de Windows (esquina inferior derecha),
-    visible aunque el navegador esté minimizado o en otra pestaña.
-    Se ejecuta en un hilo aparte para no bloquear la petición HTTP.
-    """
     if not NOTIFICACIONES_WINDOWS_OK:
         return False
     try:
@@ -494,46 +721,36 @@ def notificar_windows(titulo, mensaje, duracion=8):
                     icon_path=None
                 )
             except Exception as e:
-                print(f"⚠️  Error mostrando notificación de Windows: {e}")
+                print(f"⚠️ Error mostrando notificación de Windows: {e}")
         threading.Thread(target=_mostrar, daemon=True).start()
         return True
     except Exception as e:
-        print(f"⚠️  Error notificación Windows: {e}")
+        print(f"⚠️ Error notificación Windows: {e}")
         return False
 
-# Monitor proactivo del sistema
 def monitor_proactivo():
     UMBRAL_CPU = 85
     UMBRAL_RAM = 90
     ultimo_aviso_cpu = 0
     ultimo_aviso_ram = 0
-
     while True:
         try:
             import psutil
             cpu = psutil.cpu_percent(interval=2)
             ram = psutil.virtual_memory().percent
             now = time.time()
-
             if cpu > UMBRAL_CPU and now - ultimo_aviso_cpu > 120:
                 notificar_frontend('⚠ CPU Alta', f'CPU al {cpu}%. Revisar procesos.')
                 ultimo_aviso_cpu = now
-
             if ram > UMBRAL_RAM and now - ultimo_aviso_ram > 120:
                 notificar_frontend('⚠ RAM Alta', f'RAM al {ram}%. Sistema bajo presión.')
                 ultimo_aviso_ram = now
-
             battery = psutil.sensors_battery()
             if battery and not battery.power_plugged and battery.percent < 15:
                 notificar_frontend('🔋 Batería baja', f'Batería al {battery.percent}%. Conecta el cargador.')
-
         except:
             pass
         time.sleep(15)
-
-# ══════════════════════════════════════════
-# ENDPOINTS
-# ══════════════════════════════════════════
 
 @app.route('/api/ping', methods=['GET'])
 def ping():
@@ -543,6 +760,62 @@ def ping():
 def sistema():
     return jsonify(get_system_info())
 
+@app.route('/api/noticias', methods=['GET'])
+def noticias():
+    """Proxy de noticias con múltiples fallbacks"""
+    try:
+        feeds = [
+            'https://news.google.com/rss/search?q=Elche+Alicante&hl=es&gl=ES&ceid=ES:es',
+            'https://news.google.com/rss/search?q=Elche&hl=es&gl=ES&ceid=ES:es',
+            'https://news.google.com/rss/search?q=Alicante&hl=es&gl=ES&ceid=ES:es',
+            'https://news.google.com/rss?hl=es&gl=ES&ceid=ES:es',
+        ]
+        titulos = []
+        for feed_url in feeds:
+            try:
+                print(f"📰 Intentando obtener noticias de: {feed_url[:60]}...")
+                req = urllib.request.Request(feed_url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                with urllib.request.urlopen(req, timeout=8) as response:
+                    xml_content = response.read().decode('utf-8')
+                root = ET.fromstring(xml_content)
+                for item in root.findall('.//item'):
+                    title = item.find('title')
+                    if title is not None and title.text:
+                        titulos.append(title.text.strip())
+                        if len(titulos) >= 8:
+                            break
+                if len(titulos) == 0:
+                    for entry in root.findall('.//{http://www.w3.org/2005/Atom}entry'):
+                        title = entry.find('{http://www.w3.org/2005/Atom}title')
+                        if title is not None and title.text:
+                            titulos.append(title.text.strip())
+                            if len(titulos) >= 8:
+                                break
+                if len(titulos) > 0:
+                    print(f"✅ Obtenidas {len(titulos)} noticias")
+                    break
+            except Exception as e:
+                print(f"⚠️ Error con feed: {e}")
+                continue
+        if len(titulos) == 0:
+            print("⚠️ No se pudieron obtener noticias de ninguna fuente")
+            titulos = [
+                'Sistema de noticias temporalmente no disponible',
+                'Consulta las noticias manualmente en Google News'
+            ]
+        return jsonify({'ok': True, 'titulos': titulos[:8]})
+    except Exception as e:
+        print(f"❌ Error crítico en /api/noticias: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+            'titulos': ['Error obteniendo noticias - Usa fuentes alternativas']
+        }), 200
+
 @app.route('/api/notificaciones', methods=['GET'])
 def notificaciones():
     global notificaciones_pendientes
@@ -550,32 +823,23 @@ def notificaciones():
     notificaciones_pendientes = []
     return jsonify(ns)
 
-
 @app.route('/api/notificar_windows', methods=['POST'])
 def notificar_windows_endpoint():
-    """
-    Permite al frontend pedir explícitamente una notificación nativa de Windows,
-    sin pasar por el canal de notificaciones proactivas del chat.
-    Útil para avisos puntuales: briefing terminado, mejora aplicada, tarea larga completada.
-    """
     try:
         data = request.get_json() or {}
         titulo = data.get('titulo', 'NOVA')
         mensaje = data.get('mensaje', '')
         if not mensaje:
             return jsonify({'ok': False, 'error': 'Falta el mensaje'}), 400
-
         if not NOTIFICACIONES_WINDOWS_OK:
             return jsonify({
                 'ok': False,
                 'error': 'win10toast_click no está instalado. Ejecuta: pip install win10toast-click'
             }), 501
-
         ok = notificar_windows(titulo, mensaje)
         return jsonify({'ok': ok})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-
 
 @app.route('/api/notificaciones_estado', methods=['GET'])
 def notificaciones_estado():
@@ -586,16 +850,11 @@ def accion():
     data = request.get_json() or {}
     acc = data.get('accion', '')
     p = data.get('params', {})
-
     print(f"🤖 {acc} | {p}")
-
     mapa = {
-        # Sistema
         'sistema_info': lambda: get_system_info(),
         'procesos': lambda: get_procesos(),
         'matar_proceso': lambda: matar_proceso(p.get('nombre', '')),
-
-        # Archivos
         'listar_carpeta': lambda: listar_carpeta(p.get('ruta')),
         'buscar_archivo': lambda: buscar_archivo(p.get('nombre', ''), p.get('donde')),
         'crear_carpeta': lambda: crear_carpeta(p.get('ruta', '')),
@@ -604,20 +863,14 @@ def accion():
         'renombrar': lambda: renombrar_archivo(p.get('origen', ''), p.get('nombre', '')),
         'abrir_archivo': lambda: abrir_archivo(p.get('ruta', '')),
         'abrir_carpeta': lambda: abrir_carpeta(p.get('ruta')),
-
-        # Ventanas
         'listar_ventanas': lambda: listar_ventanas(),
         'enfocar_ventana': lambda: enfocar_ventana(p.get('titulo', '')),
         'cerrar_ventana': lambda: cerrar_ventana_titulo(p.get('titulo', '')),
         'minimizar_ventana': lambda: minimizar_ventana(p.get('titulo')),
         'maximizar_ventana': lambda: maximizar_ventana(p.get('titulo')),
-
-        # Programas y webs
         'abrir_programa': lambda: abrir_programa(p.get('nombre', '')),
         'abrir_web': lambda: abrir_web(p.get('url', '')),
         'buscar_google': lambda: buscar_google(p.get('query', '')),
-
-        # Teclado y ratón
         'escribir': lambda: escribir_texto(p.get('texto', ''), float(p.get('delay', 0.03))),
         'tecla': lambda: tecla(p.get('key', '')),
         'hotkey': lambda: hotkey(*p.get('keys', [])),
@@ -625,27 +878,19 @@ def accion():
         'click': lambda: (pyautogui.click(int(p['x']), int(p['y'])) if 'x' in p else pyautogui.click()) or 'Click',
         'scroll': lambda: pyautogui.scroll(int(p.get('cantidad', 3))) or 'Scroll',
         'screenshot': lambda: screenshot(p.get('nombre', 'captura')),
-
-        # Sistema
         'volumen': lambda: volumen(p.get('accion', 'subir')),
         'notificar_windows': lambda: (notificar_windows(p.get('titulo', 'NOVA'), p.get('mensaje', '')), 'Notificación enviada')[1],
-
-        # Documentos
         'crear_word': lambda: crear_word(p.get('nombre', 'doc'), p.get('contenido', '')),
         'crear_pdf': lambda: crear_pdf(p.get('nombre', 'doc'), p.get('contenido', '')),
         'crear_imagen': lambda: crear_imagen(p.get('nombre', 'img'), p.get('texto', ''), p.get('ancho', 1920), p.get('alto', 1080)),
         'ejecutar_cmd': lambda: ejecutar_cmd(p.get('cmd', '')),
-
-        # Automatizaciones
         'crear_auto': lambda: crear_automatizacion(p.get('nombre',''), p.get('cond_tipo',''), p.get('cond_valor',''), p.get('acc_tipo',''), p.get('acc_valor','')),
         'listar_autos': lambda: listar_automatizaciones(),
         'eliminar_auto': lambda: eliminar_automatizacion(p.get('nombre', '')),
     }
-
     fn = mapa.get(acc)
     if not fn:
         return jsonify({'ok': False, 'error': f'Acción desconocida: {acc}'}), 400
-
     try:
         resultado = fn()
         print(f"✅ {resultado}")
@@ -654,201 +899,25 @@ def accion():
         import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-# ══════════════════════════════════════════
-# ARRANQUE
-# ══════════════════════════════════════════
-
-# ══════════════════════════════════════════
-# SISTEMA DE AUTO-MEJORA CON CONFIRMACIÓN
-# NOVA propone cambios → usuario aprueba → se aplican
-# ══════════════════════════════════════════
-
-import difflib
-
-NOVA_PROJECT_PATH = Path(__file__).parent
-pendientes_aprobacion = {}
-
-def leer_archivo(ruta_relativa):
-    ruta = NOVA_PROJECT_PATH / ruta_relativa
-    if not ruta.exists():
-        return None, f"Archivo no encontrado: {ruta}"
-    try:
-        return ruta.read_text(encoding='utf-8'), None
-    except Exception as e:
-        return None, str(e)
-
-def aplicar_patch(ruta_relativa, contenido_nuevo):
-    ruta = NOVA_PROJECT_PATH / ruta_relativa
-    ruta_backup = ruta.with_suffix(ruta.suffix + '.backup')
-    try:
-        if ruta.exists():
-            import shutil
-            shutil.copy2(ruta, ruta_backup)
-        ruta.write_text(contenido_nuevo, encoding='utf-8')
-        return True, str(ruta_backup) if ruta_backup.exists() else None
-    except Exception as e:
-        return False, str(e)
-
-def generar_diff(original, nuevo, nombre_archivo):
-    diff = list(difflib.unified_diff(
-        original.splitlines(keepends=True),
-        nuevo.splitlines(keepends=True),
-        fromfile=f'a/{nombre_archivo}',
-        tofile=f'b/{nombre_archivo}',
-        n=3
-    ))
-    return ''.join(diff[:80])
-
-@app.route('/api/mejora/proponer', methods=['POST'])
-def proponer_mejora():
-    data = request.get_json() or {}
-    archivo = data.get('archivo', '')
-    contenido_nuevo = data.get('contenido_nuevo', '')
-    descripcion = data.get('descripcion', '')
-    
-    if not archivo or not contenido_nuevo:
-        return jsonify({'ok': False, 'error': 'Falta archivo o contenido'}), 400
-    
-    contenido_actual, err = leer_archivo(archivo)
-    if err:
-        return jsonify({'ok': False, 'error': err}), 404
-    
-    diff = generar_diff(contenido_actual or '', contenido_nuevo, archivo)
-    
-    import uuid
-    propuesta_id = str(uuid.uuid4())[:8]
-    pendientes_aprobacion[propuesta_id] = {
-        'archivo': archivo,
-        'contenido_nuevo': contenido_nuevo,
-        'descripcion': descripcion,
-        'ts': datetime.now().isoformat()
-    }
-    
-    print(f"📋 Propuesta de mejora [{propuesta_id}]: {descripcion}")
-    print(f"   Archivo: {archivo}")
-    
-    return jsonify({
-        'ok': True,
-        'propuesta_id': propuesta_id,
-        'descripcion': descripcion,
-        'archivo': archivo,
-        'diff': diff,
-        'lineas_cambiadas': len([l for l in diff.split('\n') if l.startswith(('+', '-')) and not l.startswith(('+++', '---'))])
-    })
-
-@app.route('/api/mejora/aprobar', methods=['POST'])
-def aprobar_mejora():
-    data = request.get_json() or {}
-    propuesta_id = data.get('propuesta_id', '')
-    
-    if propuesta_id not in pendientes_aprobacion:
-        return jsonify({'ok': False, 'error': 'Propuesta no encontrada o ya procesada'}), 404
-    
-    propuesta = pendientes_aprobacion.pop(propuesta_id)
-    ok, backup = aplicar_patch(propuesta['archivo'], propuesta['contenido_nuevo'])
-    
-    if ok:
-        print(f"✅ Mejora aplicada [{propuesta_id}]: {propuesta['descripcion']}")
-        print(f"   Backup: {backup}")
-        return jsonify({
-            'ok': True,
-            'mensaje': f"Mejora aplicada en {propuesta['archivo']}",
-            'backup': backup
-        })
-    else:
-        return jsonify({'ok': False, 'error': backup}), 500
-
-@app.route('/api/mejora/rechazar', methods=['POST'])
-def rechazar_mejora():
-    data = request.get_json() or {}
-    propuesta_id = data.get('propuesta_id', '')
-    
-    if propuesta_id in pendientes_aprobacion:
-        propuesta = pendientes_aprobacion.pop(propuesta_id)
-        print(f"❌ Mejora rechazada [{propuesta_id}]: {propuesta['descripcion']}")
-    
-    return jsonify({'ok': True, 'mensaje': 'Propuesta rechazada'})
-
-@app.route('/api/mejora/pendientes', methods=['GET'])
-def listar_pendientes():
-    return jsonify({
-        'ok': True,
-        'pendientes': [
-            {'id': k, 'archivo': v['archivo'], 'descripcion': v['descripcion'], 'ts': v['ts']}
-            for k, v in pendientes_aprobacion.items()
-        ]
-    })
-
-@app.route('/api/mejora/leer', methods=['POST'])
-def leer_archivo_endpoint():
-    data = request.get_json() or {}
-    archivo = data.get('archivo', '')
-    contenido, err = leer_archivo(archivo)
-    if err:
-        return jsonify({'ok': False, 'error': err}), 404
-    return jsonify({'ok': True, 'contenido': contenido, 'archivo': archivo})
-
-@app.route('/api/mejora/revertir', methods=['POST'])
-def revertir_mejora():
-    data = request.get_json() or {}
-    archivo = data.get('archivo', '')
-    ruta = NOVA_PROJECT_PATH / archivo
-    ruta_backup = ruta.with_suffix(ruta.suffix + '.backup')
-    
-    if not ruta_backup.exists():
-        return jsonify({'ok': False, 'error': 'No hay backup disponible'}), 404
-    
-    try:
-        import shutil
-        shutil.copy2(ruta_backup, ruta)
-        print(f"⏪ Revertido: {archivo}")
-        return jsonify({'ok': True, 'mensaje': f"Revertido a backup de {archivo}"})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-
-@app.route('/api/vision', methods=['POST'])
-def vision_proxy():
-    data = request.get_json() or {}
-    nvidia_key = data.get('key', '')
-    messages = data.get('messages', [])
-    model = data.get('model', 'meta/llama-4-maverick-17b-128e-instruct')
-    
-    import requests as req_lib
-    try:
-        r = req_lib.post(
-            'https://integrate.api.nvidia.com/v1/chat/completions',
-            headers={
-                'Authorization': f'Bearer {nvidia_key}',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            json={'model': model, 'max_tokens': 1024, 'temperature': 0.4, 'messages': messages},
-            timeout=30
-        )
-        return jsonify(r.json()), r.status_code
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
+    print(f"📁 Proyecto en: {NOVA_ROOT}")
+    print(f"💾 Backups en: {BACKUPS_DIR}")
     print("📦 Instalando dependencias opcionales...")
-
-    # Arrancar monitores en background
     threading.Thread(target=monitor_proactivo, daemon=True).start()
     threading.Thread(target=monitor_automatizaciones, daemon=True).start()
-
     print("✅ Monitores activos")
     print("🚀 Servidor en http://localhost:4000")
     print("━" * 50)
     print("Capacidades:")
-    print("  • Monitorización CPU/RAM/batería en tiempo real")
-    print("  • Gestión de archivos y carpetas")
-    print("  • Control de ventanas y aplicaciones")
-    print("  • Automatizaciones por condición")
-    print("  • Alertas proactivas")
+    print(" • Monitorización CPU/RAM/batería en tiempo real")
+    print(" • Gestión de archivos y carpetas")
+    print(" • Control de ventanas y aplicaciones")
+    print(" • Automatizaciones por condición")
+    print(" • Alertas proactivas")
+    print(" • Proxy de noticias (Google News RSS)")
+    print(" • 🧬 AUTO-MEJORA con backups automáticos")
     print("━" * 50)
-
+    print(f"Archivos editables por la IA: {len(ARCHIVOS_AUTOMEJORA)}")
+    print("━" * 50)
     app.run(host='127.0.0.1', port=4000, threaded=True)
