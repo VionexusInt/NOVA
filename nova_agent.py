@@ -16,26 +16,24 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import difflib
 import uuid
+import warnings
+import logging
 from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# ══════════════════════════════════════════
-# SISTEMA DE NOTIFICACIONES WINDOWS
-# ══════════════════════════════════════════
-NOTIFICACIONES_WINDOWS_OK = False
-_notif_engine = None
+warnings.filterwarnings('ignore')
+logging.disable(logging.WARNING)
 
-# Intentar winotify (más estable y moderno)
 try:
     from winotify import Notification
     NOTIFICACIONES_WINDOWS_OK = True
     _notif_engine = 'winotify'
 except ImportError:
-    pass
+    NOTIFICACIONES_WINDOWS_OK = False
+    _notif_engine = None
 
-# Fallback a win10toast_click
 if not NOTIFICACIONES_WINDOWS_OK:
     try:
         from win10toast_click import ToastNotifier
@@ -45,8 +43,6 @@ if not NOTIFICACIONES_WINDOWS_OK:
     except ImportError:
         _toaster = None
         NOTIFICACIONES_WINDOWS_OK = False
-
-print(f"🔔 Motor de notificaciones: {_notif_engine or 'NINGUNO'}")
 
 app = Flask(__name__)
 CORS(app)
@@ -58,9 +54,6 @@ DESKTOP = HOME / "Desktop"
 DOCUMENTS = HOME / "Documents"
 DOWNLOADS = HOME / "Downloads"
 
-# ══════════════════════════════════════════
-# RUTA BASE DEL PROYECTO NOVA
-# ══════════════════════════════════════════
 NOVA_ROOT = Path(__file__).parent.resolve()
 
 ARCHIVOS_AUTOMEJORA = [
@@ -72,21 +65,13 @@ ARCHIVOS_AUTOMEJORA = [
     'nova_agent.py', 'piper_server.py',
 ]
 
-# Almacenamiento en memoria de propuestas pendientes
-# {id: {archivo, contenido_nuevo, descripcion, timestamp}}
 propuestas_pendientes = {}
 
-# Directorio de backups
 BACKUPS_DIR = NOVA_ROOT / '_backups_automejora'
 BACKUPS_DIR.mkdir(exist_ok=True)
 
 
-# ══════════════════════════════════════════
-# SISTEMA DE AUTO-MEJORA
-# ══════════════════════════════════════════
-
 def _resolver_ruta_archivo(archivo):
-    """Convierte 'js/briefing.js' a una Path absoluta segura."""
     if not archivo or not isinstance(archivo, str):
         return None
     archivo = archivo.strip().strip('"\'`').replace('\\', '/')
@@ -103,7 +88,6 @@ def _resolver_ruta_archivo(archivo):
 
 
 def _generar_diff(original, nuevo, archivo):
-    """Genera un diff unificado legible."""
     try:
         orig_lines = original.splitlines(keepends=True)
         new_lines = nuevo.splitlines(keepends=True)
@@ -118,13 +102,11 @@ def _generar_diff(original, nuevo, archivo):
 
 
 def _crear_backup(ruta_archivo, archivo_nombre):
-    """Crea un backup con timestamp antes de sobrescribir."""
     try:
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_nombre = f"{ts}__{archivo_nombre.replace('/', '__')}"
         backup_path = BACKUPS_DIR / backup_nombre
         shutil.copy2(ruta_archivo, backup_path)
-        # Mantener solo los últimos 10 backups por archivo
         archivos_backup = sorted(BACKUPS_DIR.glob(f"*__{archivo_nombre.replace('/', '__')}"))
         for viejo in archivos_backup[:-10]:
             try:
@@ -133,13 +115,11 @@ def _crear_backup(ruta_archivo, archivo_nombre):
                 pass
         return str(backup_path)
     except Exception as e:
-        print(f"⚠️ Error creando backup: {e}")
         return None
 
 
 @app.route('/api/mejora/leer', methods=['POST'])
 def mejora_leer():
-    """Lee el contenido actual de un archivo del proyecto."""
     try:
         data = request.get_json() or {}
         archivo = data.get('archivo', '')
@@ -149,16 +129,13 @@ def mejora_leer():
         if not ruta.exists():
             return jsonify({'ok': False, 'error': f'El archivo no existe: {ruta}'}), 404
         contenido = ruta.read_text(encoding='utf-8')
-        print(f"📖 Leyendo {archivo} ({len(contenido)} caracteres)")
         return jsonify({'ok': True, 'archivo': archivo, 'contenido': contenido})
     except Exception as e:
-        import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/mejora/proponer', methods=['POST'])
 def mejora_proponer():
-    """Registra una propuesta de cambio y calcula el diff."""
     try:
         data = request.get_json() or {}
         archivo = data.get('archivo', '')
@@ -186,7 +163,6 @@ def mejora_proponer():
             'timestamp': datetime.now().isoformat(),
             'diff': diff,
         }
-        print(f"📝 Propuesta {propuesta_id} creada para {archivo}")
         return jsonify({
             'ok': True,
             'propuesta_id': propuesta_id,
@@ -196,13 +172,11 @@ def mejora_proponer():
             'diff': diff[:5000],
         })
     except Exception as e:
-        import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/mejora/aprobar', methods=['POST'])
 def mejora_aprobar():
-    """Aplica una propuesta: crea backup y sobrescribe el archivo."""
     try:
         data = request.get_json() or {}
         propuesta_id = data.get('propuesta_id', '')
@@ -219,11 +193,7 @@ def mejora_aprobar():
         except Exception as e:
             return jsonify({'ok': False, 'error': f'Error escribiendo archivo: {e}'}), 500
         del propuestas_pendientes[propuesta_id]
-        print(f"✅ Mejora aplicada en {archivo} (backup: {backup_path})")
-        notificar_windows(
-            'NOVA — Mejora aplicada',
-            f'Archivo actualizado: {archivo}. Reinicia NOVA para ver los cambios.'
-        )
+        notificar_windows('NOVA — Mejora aplicada', f'Archivo actualizado: {archivo}. Reinicia NOVA para ver los cambios.')
         return jsonify({
             'ok': True,
             'archivo': archivo,
@@ -231,29 +201,25 @@ def mejora_aprobar():
             'mensaje': f'Mejora aplicada en {archivo}. Reinicia NOVA para que surta efecto.',
         })
     except Exception as e:
-        import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/mejora/rechazar', methods=['POST'])
 def mejora_rechazar():
-    """Descarta una propuesta sin aplicar cambios."""
     try:
         data = request.get_json() or {}
         propuesta_id = data.get('propuesta_id', '')
         if propuesta_id in propuestas_pendientes:
             archivo = propuestas_pendientes[propuesta_id]['archivo']
             del propuestas_pendientes[propuesta_id]
-            print(f"❌ Propuesta {propuesta_id} rechazada ({archivo})")
             return jsonify({'ok': True, 'archivo': archivo, 'mensaje': 'Propuesta descartada'})
-        return jsonify({'ok': True, 'mensaje': 'Propuesta no encontrada (ya había sido gestionada)'})
+        return jsonify({'ok': True, 'mensaje': 'Propuesta no encontrada'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/mejora/revertir', methods=['POST'])
 def mejora_revertir():
-    """Restaura el último backup de un archivo."""
     try:
         data = request.get_json() or {}
         archivo = data.get('archivo', '')
@@ -267,7 +233,6 @@ def mejora_revertir():
         ultimo_backup = backups[0]
         try:
             shutil.copy2(ultimo_backup, ruta)
-            print(f"⏪ {archivo} revertido desde {ultimo_backup.name}")
             return jsonify({
                 'ok': True,
                 'archivo': archivo,
@@ -277,13 +242,11 @@ def mejora_revertir():
         except Exception as e:
             return jsonify({'ok': False, 'error': f'Error restaurando: {e}'}), 500
     except Exception as e:
-        import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/mejora/lista_archivos', methods=['GET'])
 def mejora_lista_archivos():
-    """Lista los archivos que la IA puede modificar."""
     existentes = []
     for a in ARCHIVOS_AUTOMEJORA:
         ruta = NOVA_ROOT / a
@@ -301,10 +264,6 @@ def mejora_lista_archivos():
         'propuestas_pendientes': len(propuestas_pendientes),
     })
 
-
-# ══════════════════════════════════════════
-# MONITORIZACIÓN DEL SISTEMA
-# ══════════════════════════════════════════
 
 def get_system_info():
     try:
@@ -710,23 +669,32 @@ def notificar_frontend(titulo, mensaje, tambien_windows=True):
 def notificar_windows(titulo, mensaje, duracion=8):
     if not NOTIFICACIONES_WINDOWS_OK:
         return False
-    try:
-        def _mostrar():
-            try:
-                _toaster.show_toast(
-                    titulo[:64],
-                    mensaje[:200],
-                    duration=duracion,
-                    threaded=True,
-                    icon_path=None
+    def _mostrar():
+        try:
+            if _notif_engine == 'winotify':
+                toast = Notification(
+                    app_id="NOVA",
+                    title=titulo[:64],
+                    msg=mensaje[:200],
+                    duration="short" if duracion <= 5 else "long",
+                    icon=None
                 )
-            except Exception as e:
-                print(f"⚠️ Error mostrando notificación de Windows: {e}")
-        threading.Thread(target=_mostrar, daemon=True).start()
-        return True
-    except Exception as e:
-        print(f"⚠️ Error notificación Windows: {e}")
-        return False
+                toast.show()
+            elif _notif_engine == 'win10toast':
+                try:
+                    _toaster.show_toast(
+                        titulo[:64],
+                        mensaje[:200],
+                        duration=duracion,
+                        threaded=True,
+                        icon_path=None
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    threading.Thread(target=_mostrar, daemon=True).start()
+    return True
 
 def monitor_proactivo():
     UMBRAL_CPU = 85
@@ -762,7 +730,6 @@ def sistema():
 
 @app.route('/api/noticias', methods=['GET'])
 def noticias():
-    """Proxy de noticias con múltiples fallbacks"""
     try:
         feeds = [
             'https://news.google.com/rss/search?q=Elche+Alicante&hl=es&gl=ES&ceid=ES:es',
@@ -773,7 +740,6 @@ def noticias():
         titulos = []
         for feed_url in feeds:
             try:
-                print(f"📰 Intentando obtener noticias de: {feed_url[:60]}...")
                 req = urllib.request.Request(feed_url, headers={
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 })
@@ -794,27 +760,14 @@ def noticias():
                             if len(titulos) >= 8:
                                 break
                 if len(titulos) > 0:
-                    print(f"✅ Obtenidas {len(titulos)} noticias")
                     break
-            except Exception as e:
-                print(f"⚠️ Error con feed: {e}")
+            except Exception:
                 continue
         if len(titulos) == 0:
-            print("⚠️ No se pudieron obtener noticias de ninguna fuente")
-            titulos = [
-                'Sistema de noticias temporalmente no disponible',
-                'Consulta las noticias manualmente en Google News'
-            ]
+            titulos = ['Sistema de noticias temporalmente no disponible']
         return jsonify({'ok': True, 'titulos': titulos[:8]})
     except Exception as e:
-        print(f"❌ Error crítico en /api/noticias: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'ok': False,
-            'error': str(e),
-            'titulos': ['Error obteniendo noticias - Usa fuentes alternativas']
-        }), 200
+        return jsonify({'ok': False, 'error': str(e), 'titulos': []}), 200
 
 @app.route('/api/notificaciones', methods=['GET'])
 def notificaciones():
@@ -832,10 +785,7 @@ def notificar_windows_endpoint():
         if not mensaje:
             return jsonify({'ok': False, 'error': 'Falta el mensaje'}), 400
         if not NOTIFICACIONES_WINDOWS_OK:
-            return jsonify({
-                'ok': False,
-                'error': 'win10toast_click no está instalado. Ejecuta: pip install win10toast-click'
-            }), 501
+            return jsonify({'ok': False, 'error': 'Sistema de notificaciones no disponible'}), 501
         ok = notificar_windows(titulo, mensaje)
         return jsonify({'ok': ok})
     except Exception as e:
@@ -843,14 +793,13 @@ def notificar_windows_endpoint():
 
 @app.route('/api/notificaciones_estado', methods=['GET'])
 def notificaciones_estado():
-    return jsonify({'windows_disponible': NOTIFICACIONES_WINDOWS_OK})
+    return jsonify({'windows_disponible': NOTIFICACIONES_WINDOWS_OK, 'motor': _notif_engine})
 
 @app.route('/api/accion', methods=['POST'])
 def accion():
     data = request.get_json() or {}
     acc = data.get('accion', '')
     p = data.get('params', {})
-    print(f"🤖 {acc} | {p}")
     mapa = {
         'sistema_info': lambda: get_system_info(),
         'procesos': lambda: get_procesos(),
@@ -893,17 +842,15 @@ def accion():
         return jsonify({'ok': False, 'error': f'Acción desconocida: {acc}'}), 400
     try:
         resultado = fn()
-        print(f"✅ {resultado}")
         return jsonify({'ok': True, 'resultado': resultado})
     except Exception as e:
-        import traceback; traceback.print_exc()
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
     print(f"📁 Proyecto en: {NOVA_ROOT}")
     print(f"💾 Backups en: {BACKUPS_DIR}")
-    print("📦 Instalando dependencias opcionales...")
+    print(f"🔔 Motor de notificaciones: {_notif_engine or 'NINGUNO'}")
     threading.Thread(target=monitor_proactivo, daemon=True).start()
     threading.Thread(target=monitor_automatizaciones, daemon=True).start()
     print("✅ Monitores activos")
@@ -917,7 +864,5 @@ if __name__ == '__main__':
     print(" • Alertas proactivas")
     print(" • Proxy de noticias (Google News RSS)")
     print(" • 🧬 AUTO-MEJORA con backups automáticos")
-    print("━" * 50)
-    print(f"Archivos editables por la IA: {len(ARCHIVOS_AUTOMEJORA)}")
     print("━" * 50)
     app.run(host='127.0.0.1', port=4000, threaded=True)
