@@ -10,6 +10,16 @@ function stopAudio() {
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
 }
 
+// Limpia el texto antes de mandarlo a TTS — emojis y símbolos no se leen bien
+// en voz alta y pueden causar pausas o pronunciaciones extrañas en Piper.
+function limpiarParaVoz(txt) {
+  return txt
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '') // emojis
+    .replace(/⚡|✅|⚠️|⚠|🔍|📄|⏪|❌|📋|🔧|🎙️/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 async function fetchAudio(txt) {
   const response = await fetch('http://localhost:5000/tts', {
     method: 'POST',
@@ -31,12 +41,15 @@ export async function speak(txt) {
 export function speakAndWait(txt) {
   if (!txt?.trim()) return Promise.resolve();
 
+  const txtLimpio = limpiarParaVoz(txt);
+  if (!txtLimpio) return Promise.resolve();
+
   return new Promise(async (resolve) => {
     stopAudio();
     setOrb('thinking');
 
     try {
-      const url = await fetchAudio(txt);
+      const url = await fetchAudio(txtLimpio);
       currentAudio = new Audio(url);
 
       currentAudio.onplay = () => {

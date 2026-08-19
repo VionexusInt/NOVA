@@ -17,6 +17,14 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+try:
+    from win10toast_click import ToastNotifier
+    _toaster = ToastNotifier()
+    NOTIFICACIONES_WINDOWS_OK = True
+except ImportError:
+    _toaster = None
+    NOTIFICACIONES_WINDOWS_OK = False
+
 app = Flask(__name__)
 CORS(app)
 
@@ -457,12 +465,41 @@ def monitor_automatizaciones():
 # Canal de notificaciones proactivas al frontend
 notificaciones_pendientes = []
 
-def notificar_frontend(titulo, mensaje):
+def notificar_frontend(titulo, mensaje, tambien_windows=True):
     notificaciones_pendientes.append({
         'titulo': titulo,
         'mensaje': mensaje,
         'ts': datetime.now().isoformat()
     })
+    if tambien_windows:
+        notificar_windows(titulo, mensaje)
+
+
+def notificar_windows(titulo, mensaje, duracion=8):
+    """
+    Muestra una notificación nativa de Windows (esquina inferior derecha),
+    visible aunque el navegador esté minimizado o en otra pestaña.
+    Se ejecuta en un hilo aparte para no bloquear la petición HTTP.
+    """
+    if not NOTIFICACIONES_WINDOWS_OK:
+        return False
+    try:
+        def _mostrar():
+            try:
+                _toaster.show_toast(
+                    titulo[:64],
+                    mensaje[:200],
+                    duration=duracion,
+                    threaded=True,
+                    icon_path=None
+                )
+            except Exception as e:
+                print(f"⚠️  Error mostrando notificación de Windows: {e}")
+        threading.Thread(target=_mostrar, daemon=True).start()
+        return True
+    except Exception as e:
+        print(f"⚠️  Error notificación Windows: {e}")
+        return False
 
 # Monitor proactivo del sistema
 def monitor_proactivo():
@@ -513,6 +550,37 @@ def notificaciones():
     notificaciones_pendientes = []
     return jsonify(ns)
 
+
+@app.route('/api/notificar_windows', methods=['POST'])
+def notificar_windows_endpoint():
+    """
+    Permite al frontend pedir explícitamente una notificación nativa de Windows,
+    sin pasar por el canal de notificaciones proactivas del chat.
+    Útil para avisos puntuales: briefing terminado, mejora aplicada, tarea larga completada.
+    """
+    try:
+        data = request.get_json() or {}
+        titulo = data.get('titulo', 'NOVA')
+        mensaje = data.get('mensaje', '')
+        if not mensaje:
+            return jsonify({'ok': False, 'error': 'Falta el mensaje'}), 400
+
+        if not NOTIFICACIONES_WINDOWS_OK:
+            return jsonify({
+                'ok': False,
+                'error': 'win10toast_click no está instalado. Ejecuta: pip install win10toast-click'
+            }), 501
+
+        ok = notificar_windows(titulo, mensaje)
+        return jsonify({'ok': ok})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/notificaciones_estado', methods=['GET'])
+def notificaciones_estado():
+    return jsonify({'windows_disponible': NOTIFICACIONES_WINDOWS_OK})
+
 @app.route('/api/accion', methods=['POST'])
 def accion():
     data = request.get_json() or {}
@@ -560,6 +628,7 @@ def accion():
 
         # Sistema
         'volumen': lambda: volumen(p.get('accion', 'subir')),
+        'notificar_windows': lambda: (notificar_windows(p.get('titulo', 'NOVA'), p.get('mensaje', '')), 'Notificación enviada')[1],
 
         # Documentos
         'crear_word': lambda: crear_word(p.get('nombre', 'doc'), p.get('contenido', '')),

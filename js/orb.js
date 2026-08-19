@@ -1,22 +1,21 @@
-let canvas, ctx, W, H, cx, cy, R;
+let canvas, ctx, W, H, cx, cy;
 let orbState = 'idle';
 let targetLvl = 0;
 let audioLvl = 0;
 let time = 0;
 
-// Plasma particles
-const PARTICLES = 180;
-let particles = [];
+const LAYERS = 5;
+const NODES_PER_LAYER = [6, 10, 14, 10, 6];
+let layers = [];
+let synapses = [];
+let ambientParticles = [];
 
-// Neural filaments
-const FILAMENTS = 24;
-let filaments = [];
-
-// Heartbeat data
 let heartbeatPhase = 0;
 let heartbeatStrength = 0;
 let nextBeat = 60;
-let beatCount = 0;
+
+let rotationY = 0;
+let rotationX = 0.15;
 
 function initCanvas() {
   canvas = document.getElementById('novaCanvas');
@@ -24,8 +23,7 @@ function initCanvas() {
   ctx = canvas.getContext('2d');
   resize();
   window.addEventListener('resize', resize);
-  initParticles();
-  initFilaments();
+  buildNetwork();
   requestAnimationFrame(draw);
 }
 
@@ -36,346 +34,295 @@ function resize() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = s * dpr;
   canvas.height = s * dpr;
-  W = canvas.width; H = canvas.height;
-  cx = W / 2; cy = H / 2;
-  R = W * 0.38;
+  ctx.setTransform(1,0,0,1,0,0);
   ctx.scale(dpr, dpr);
-  initParticles();
-  initFilaments();
+  W = canvas.clientWidth;
+  H = canvas.clientHeight;
+  cx = W / 2;
+  cy = H / 2;
+  buildNetwork();
 }
 
-function initParticles() {
-  particles = [];
-  const sw = canvas.clientWidth;
-  const sh = canvas.clientHeight;
-  const r = sw * 0.38;
-  const c2 = sw / 2;
+function buildNetwork() {
+  layers = [];
+  synapses = [];
+  ambientParticles = [];
 
+  const R = W * 0.36;
+  const depth = R * 1.3;
+
+  LAYERS && NODES_PER_LAYER.forEach((count, li) => {
+    const nodes = [];
+    const layerZ = (li / (LAYERS - 1) - 0.5) * depth;
+    const layerR = R * (0.35 + 0.65 * Math.sin((li / (LAYERS - 1)) * Math.PI));
+
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + li * 0.4;
+      const ringVariance = 0.7 + Math.random() * 0.3;
+      nodes.push({
+        baseAngle: a,
+        baseR: layerR * ringVariance,
+        z: layerZ + (Math.random() - 0.5) * depth * 0.06,
+        y3d: 0, x3d: 0, z3d: 0,
+        sx: 0, sy: 0, scale: 1,
+        size: 1.4 + Math.random() * 1.8,
+        pulse: Math.random() * Math.PI * 2,
+        pulseSpd: 0.02 + Math.random() * 0.03,
+        signal: 0,
+        signalDecay: 0.02 + Math.random() * 0.015,
+        layer: li,
+        wobble: Math.random() * Math.PI * 2,
+      });
+    }
+    layers.push(nodes);
+  });
+
+  for (let li = 0; li < layers.length - 1; li++) {
+    const a = layers[li], b = layers[li + 1];
+    a.forEach((na, i) => {
+      const connCount = 2 + Math.floor(Math.random() * 2);
+      const targets = new Set();
+      while (targets.size < Math.min(connCount, b.length)) {
+        targets.add(Math.floor(Math.random() * b.length));
+      }
+      targets.forEach(j => {
+        synapses.push({
+          a: na, b: b[j],
+          strength: 0.3 + Math.random() * 0.7,
+          active: false,
+          pos: 0,
+          speed: 0.03 + Math.random() * 0.04,
+          cooldown: Math.random() * 100,
+        });
+      });
+    });
+  }
+
+  const PARTICLES = 60;
   for (let i = 0; i < PARTICLES; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.pow(Math.random(), 0.5) * r * 0.92;
-    particles.push({
-      x: c2 + Math.cos(angle) * dist,
-      y: sh / 2 + Math.sin(angle) * dist,
-      bx: c2 + Math.cos(angle) * dist,
-      by: sh / 2 + Math.sin(angle) * dist,
-      angle, dist,
-      orbitSpd: (0.001 + Math.random() * 0.004) * (Math.random() > 0.5 ? 1 : -1),
-      size: 0.6 + Math.random() * 2.2,
-      bright: 0.1 + Math.random() * 0.6,
+    const a = Math.random() * Math.PI * 2;
+    const el = Math.acos(2 * Math.random() - 1);
+    const r = R * 1.15 * (0.85 + Math.random() * 0.3);
+    ambientParticles.push({
+      baseAngle: a, elevation: el, r,
+      driftSpd: (Math.random() - 0.5) * 0.0015,
+      size: 0.4 + Math.random() * 0.8,
+      alpha: 0.05 + Math.random() * 0.15,
       pulse: Math.random() * Math.PI * 2,
-      pulseSpd: 0.008 + Math.random() * 0.025,
-      layer: Math.floor(Math.random() * 3),
-      signal: 0,
-      trail: [],
-      trailLen: Math.floor(Math.random() * 8),
     });
   }
 }
 
-function initFilaments() {
-  filaments = [];
-  for (let i = 0; i < FILAMENTS; i++) {
-    filaments.push(createFilament(i));
-  }
-}
+function project(x, y, z) {
+  const cosY = Math.cos(rotationY), sinY = Math.sin(rotationY);
+  const cosX = Math.cos(rotationX), sinX = Math.sin(rotationX);
 
-function createFilament(i) {
-  const startAngle = (i / FILAMENTS) * Math.PI * 2 + Math.random() * 0.5;
-  const sw = canvas.clientWidth;
-  const r = sw * 0.38;
-  const c2 = sw / 2;
-  const ch = canvas.clientHeight / 2;
+  let x1 = x * cosY - z * sinY;
+  let z1 = x * sinY + z * cosY;
+  let y1 = y * cosX - z1 * sinX;
+  let z2 = y * sinX + z1 * cosX;
 
-  const pts = [];
-  const steps = 12 + Math.floor(Math.random() * 10);
-  const endR = r * (0.05 + Math.random() * 0.85);
-  const endAngle = startAngle + (Math.random() - 0.5) * Math.PI * 1.2;
+  const perspective = 700;
+  const scale = perspective / (perspective + z2);
 
-  for (let j = 0; j <= steps; j++) {
-    const t = j / steps;
-    const cr = endR * t;
-    const ca = startAngle + (endAngle - startAngle) * t;
-    const jitter = (1 - Math.pow(t - 0.5, 2) * 4) * r * 0.08;
-    pts.push({
-      x: c2 + Math.cos(ca) * cr + (Math.random() - 0.5) * jitter,
-      y: ch + Math.sin(ca) * cr + (Math.random() - 0.5) * jitter,
-    });
-  }
-
-  return {
-    pts,
-    life: Math.random(),
-    maxLife: 0.6 + Math.random() * 0.8,
-    spd: 0.003 + Math.random() * 0.008,
-    bright: 0.2 + Math.random() * 0.5,
-    signal: 0,
-    signalPos: Math.random() > 0.7 ? 0 : -1,
-    signalActive: Math.random() > 0.7,
-  };
+  return { x: cx + x1 * scale, y: cy + y1 * scale, scale, z: z2 };
 }
 
 function getC() {
   switch (orbState) {
-    case 'listening': return { r: [232, 100, 100], g: [255, 140, 120], a: [255, 80, 80] };
-    case 'thinking':  return { r: [200, 160, 90], g: [220, 185, 120], a: [180, 130, 60] };
-    case 'speaking':  return { r: [80, 200, 140], g: [120, 220, 170], a: [60, 180, 110] };
-    default:          return { r: [74, 158, 255], g: [120, 185, 255], a: [45, 120, 220] };
+    case 'listening': return { core: [255,120,120], mid: [232,90,90], dim: [160,60,60] };
+    case 'thinking':  return { core: [230,190,120], mid: [200,160,90], dim: [140,110,60] };
+    case 'speaking':  return { core: [140,230,180], mid: [80,200,140], dim: [50,140,95] };
+    default:          return { core: [150,195,255], mid: [74,158,255], dim: [40,90,160] };
   }
 }
-
 function rgb(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
 function draw() {
   requestAnimationFrame(draw);
-  if (!ctx) return;
+  if (!ctx || !W) return;
 
-  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-
-  time += 0.007;
-  audioLvl += (targetLvl - audioLvl) * 0.04;
+  ctx.clearRect(0, 0, W, H);
+  time += 0.006;
+  audioLvl += (targetLvl - audioLvl) * 0.05;
   const e = audioLvl;
   const C = getC();
-  const sw = canvas.clientWidth;
-  const sh = canvas.clientHeight;
-  const r = sw * 0.38;
-  const c2 = sw / 2;
-  const ch = sh / 2;
 
-  // Heartbeat - smooth, no jolts
   nextBeat--;
   if (nextBeat <= 0) {
-    heartbeatStrength = 0.4 + e * 0.2;
+    heartbeatStrength = 0.5 + e * 0.4;
     heartbeatPhase = 0;
-    beatCount++;
-    nextBeat = 70 + Math.random() * 40;
+    nextBeat = 65 + Math.random() * 35;
   }
-  heartbeatPhase += 0.04;
-  const rawBeat = heartbeatStrength * Math.max(0, Math.exp(-heartbeatPhase * 0.8) * Math.sin(heartbeatPhase * 5));
-  const beat = rawBeat * 0.5;
+  heartbeatPhase += 0.045;
+  const beat = heartbeatStrength * Math.max(0, Math.exp(-heartbeatPhase * 0.9) * Math.sin(heartbeatPhase * 5));
   heartbeatStrength = Math.max(0, heartbeatStrength - 0.008);
 
-  const breathe = 1 + Math.sin(time * 0.5) * 0.015 + beat * 0.02 + e * 0.05;
+  rotationY += 0.0022 + e * 0.003;
+  rotationX = 0.15 + Math.sin(time * 0.3) * 0.06;
 
-  // ── CORONA EXTERIOR ──
-  const corona = ctx.createRadialGradient(c2, ch, 0, c2, ch, r * 1.8);
-  corona.addColorStop(0, rgb(C.r, 0.02 + beat * 0.03 + e * 0.02));
-  corona.addColorStop(0.5, rgb(C.a, 0.01 + e * 0.01));
-  corona.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.beginPath();
-  ctx.arc(c2, ch, r * 1.8, 0, Math.PI * 2);
-  ctx.fillStyle = corona;
-  ctx.fill();
+  const R = W * 0.36;
 
-  // ── ONDAS ORGÁNICAS ──
-  const waveCount = orbState === 'speaking' ? 6 : orbState === 'listening' ? 5 : 4;
-  for (let w = 0; w < waveCount; w++) {
-    const wr = r * breathe * (0.88 + w * 0.04);
-    const wAlpha = (0.06 - w * 0.008) + beat * 0.06 + e * 0.05;
+  // ── Ambient depth glow ──
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.6);
+  glow.addColorStop(0, rgb(C.mid, 0.025 + beat * 0.03 + e * 0.02));
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Ambient particles (background field) ──
+  ambientParticles.forEach(p => {
+    p.baseAngle += p.driftSpd;
+    p.pulse += 0.01;
+    const x = Math.sin(p.elevation) * Math.cos(p.baseAngle) * p.r;
+    const y = Math.cos(p.elevation) * p.r;
+    const z = Math.sin(p.elevation) * Math.sin(p.baseAngle) * p.r;
+    const pr = project(x, y, z);
+    if (pr.scale <= 0) return;
+    const a = p.alpha * (0.5 + Math.sin(p.pulse) * 0.5) * pr.scale;
+    ctx.beginPath();
+    ctx.arc(pr.x, pr.y, p.size * pr.scale, 0, Math.PI * 2);
+    ctx.fillStyle = rgb(C.dim, a);
+    ctx.fill();
+  });
+
+  // ── Project all nodes ──
+  layers.forEach(nodes => {
+    nodes.forEach(n => {
+      n.wobble += 0.008;
+      const angle = n.baseAngle + time * 0.15;
+      const rOsc = n.baseR * (1 + Math.sin(n.wobble) * 0.04 + beat * 0.05);
+      const x = Math.cos(angle) * rOsc;
+      const y = Math.sin(angle) * rOsc * 0.55;
+      const z = n.z + Math.sin(time * 0.4 + n.wobble) * R * 0.03;
+      const pr = project(x, y, z);
+      n.sx = pr.x; n.sy = pr.y; n.scale = pr.scale; n.zDepth = pr.z;
+    });
+  });
+
+  // ── Sort synapses by depth for proper layering ──
+  const allNodesFlat = layers.flat();
+  const avgZ = n => n.zDepth || 0;
+
+  // ── Draw synapses (behind nodes when z is further) ──
+  synapses.forEach(s => {
+    const na = s.a, nb = s.b;
+    if (na.scale <= 0 || nb.scale <= 0) return;
+
+    const depthFade = Math.min(na.scale, nb.scale);
+    const baseAlpha = s.strength * 0.06 * depthFade;
 
     ctx.beginPath();
-    for (let i = 0; i <= 120; i++) {
-      const a = (i / 120) * Math.PI * 2;
-      const n1 = Math.sin(a * 3 + time * 1.8 + w * 0.7) * r * (0.015 + e * 0.04 + beat * 0.02);
-      const n2 = Math.sin(a * 7 - time * 2.5 + w * 1.2) * r * (0.01 + e * 0.025);
-      const n3 = Math.sin(a * 13 + time * 3.8 + w) * r * (0.006 + e * 0.015);
-      const rr = wr + n1 + n2 + n3;
-      const px = c2 + Math.cos(a) * rr;
-      const py = ch + Math.sin(a) * rr;
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = w === 0 ? rgb(C.g, wAlpha * 1.5) : rgb(C.r, wAlpha);
-    ctx.lineWidth = w === 0 ? 1.2 : 0.6;
-    ctx.stroke();
-  }
-
-  // ── FILAMENTOS ──
-  filaments.forEach((f, fi) => {
-    f.life += f.spd * (1 + e * 0.5);
-    if (f.life > f.maxLife) {
-      filaments[fi] = createFilament(fi);
-      return;
-    }
-
-    const la = Math.sin((f.life / f.maxLife) * Math.PI) * f.bright;
-
-    if (f.pts.length < 2) return;
-
-    ctx.beginPath();
-    ctx.moveTo(f.pts[0].x, f.pts[0].y);
-    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
-
-    ctx.strokeStyle = rgb(C.r, la * 0.06);
-    ctx.lineWidth = 3;
+    ctx.moveTo(na.sx, na.sy);
+    const midX = (na.sx + nb.sx) / 2 + Math.sin(time * 2 + s.pos * 10) * 3;
+    const midY = (na.sy + nb.sy) / 2 + Math.cos(time * 2 + s.pos * 10) * 3;
+    ctx.quadraticCurveTo(midX, midY, nb.sx, nb.sy);
+    ctx.strokeStyle = rgb(C.mid, baseAlpha + na.signal * 0.15 + e * 0.03);
+    ctx.lineWidth = (0.4 + na.signal * 1.2) * depthFade;
     ctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(f.pts[0].x, f.pts[0].y);
-    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
-    ctx.strokeStyle = rgb(C.g, la * 0.2);
-    ctx.lineWidth = 0.7;
-    ctx.stroke();
-
-    // Signal traveling the filament
-    if (f.signalActive) {
-      f.signalPos += 0.035 * (1 + e);
-      if (f.signalPos > 1) {
-        f.signalPos = -1;
-        f.signalActive = Math.random() > 0.4;
+    if (s.active) {
+      s.pos += s.speed * (1 + e * 0.8);
+      if (s.pos >= 1) {
+        s.active = false;
+        s.pos = 0;
+        s.cooldown = 20 + Math.random() * 60;
+        nb.signal = Math.min(1, nb.signal + 0.6);
       }
-      if (f.signalPos >= 0) {
-        const idx = Math.floor(f.signalPos * (f.pts.length - 1));
-        const pt = f.pts[Math.min(idx, f.pts.length - 1)];
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 2 + e * 2, 0, Math.PI * 2);
-        ctx.fillStyle = rgb(C.g, 0.7 + beat * 0.3);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 5 + e * 4, 0, Math.PI * 2);
-        ctx.fillStyle = rgb(C.g, 0.1);
-        ctx.fill();
+      const t = s.pos;
+      const px = na.sx * (1-t)*(1-t) + midX * 2*(1-t)*t + nb.sx * t*t;
+      const py = na.sy * (1-t)*(1-t) + midY * 2*(1-t)*t + nb.sy * t*t;
+      const pulseSize = (2 + e * 2) * depthFade;
+
+      ctx.beginPath();
+      ctx.arc(px, py, pulseSize * 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(C.core, 0.15 * depthFade);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(px, py, pulseSize, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(C.core, 0.9 * depthFade);
+      ctx.fill();
+    } else {
+      if (s.cooldown > 0) s.cooldown--;
+      else if (na.signal > 0.25 && Math.random() < 0.025 * (1 + e * 4 + beat * 3)) {
+        s.active = true;
+        s.pos = 0;
       }
-    } else if (Math.random() < 0.003 * (1 + e * 4 + beat * 3)) {
-      f.signalActive = true;
-      f.signalPos = 0;
     }
   });
 
-  // ── CLIP — interior de la esfera ──
-  ctx.save();
-  ctx.beginPath();
-  for (let i = 0; i <= 120; i++) {
-    const a = (i / 120) * Math.PI * 2;
-    const n = Math.sin(a * 4 + time * 2) * r * 0.012 * (1 + e * 2 + beat);
-    const rr = r * breathe + n;
-    const px = c2 + Math.cos(a) * rr;
-    const py = ch + Math.sin(a) * rr;
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-  ctx.clip();
+  // ── Draw nodes sorted by depth (back to front) ──
+  const sortedNodes = allNodesFlat.slice().sort((a,b) => a.zDepth - b.zDepth);
+  sortedNodes.forEach(n => {
+    if (n.scale <= 0) return;
+    n.pulse += n.pulseSpd * (1 + e);
+    n.signal = Math.max(0, n.signal - n.signalDecay);
+    if (Math.random() < 0.0006 * (1 + e * 5 + beat * 4) && n.layer === 2) n.signal = 1;
 
-  // Fondo interior
-  const innerBg = ctx.createRadialGradient(c2, ch, 0, c2, ch, r);
-  innerBg.addColorStop(0, `rgba(0,1,4,1)`);
-  innerBg.addColorStop(0.7, `rgba(0,2,8,1)`);
-  innerBg.addColorStop(1, rgb(C.a, 0.08 + beat * 0.05));
-  ctx.fillStyle = innerBg;
-  ctx.fillRect(0, 0, sw, sh);
+    const pulseFactor = 0.4 + Math.sin(n.pulse) * 0.35;
+    const nodeAlpha = (0.35 + pulseFactor * 0.3 + n.signal * 0.5 + e * 0.15) * n.scale;
+    const nodeSize = n.size * n.scale * (1 + n.signal * 0.7 + beat * 0.25 + e * 0.2);
 
-  // ── PARTÍCULAS DE PLASMA ──
-  particles.forEach(p => {
-    p.angle += p.orbitSpd * (1 + e * 0.6 + beat * 0.3);
-    p.pulse += p.pulseSpd;
-
-    const distMod = p.dist * (1 + Math.sin(time * 0.4 + p.angle * 2) * 0.04 + beat * 0.03);
-    p.x = c2 + Math.cos(p.angle) * distMod;
-    p.y = ch + Math.sin(p.angle) * distMod;
-
-    p.trail.unshift({ x: p.x, y: p.y });
-    if (p.trail.length > p.trailLen) p.trail.pop();
-
-    const pAlpha = (0.08 + Math.sin(p.pulse) * 0.5 * p.bright + p.signal * 0.4 + e * 0.15) * (p.layer === 2 ? 1 : p.layer === 1 ? 0.7 : 0.4);
-    const pSize = p.size * (1 + p.signal * 0.6 + beat * 0.3 + e * 0.2);
-
-    // Trail
-    p.trail.forEach((tp, ti) => {
-      const ta = pAlpha * (1 - ti / p.trail.length) * 0.35;
+    if (n.signal > 0.15) {
+      const g = ctx.createRadialGradient(n.sx, n.sy, 0, n.sx, n.sy, nodeSize * 5);
+      g.addColorStop(0, rgb(C.core, n.signal * 0.12 * n.scale));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.beginPath();
-      ctx.arc(tp.x, tp.y, pSize * (1 - ti / p.trail.length) * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = rgb(C.r, ta);
-      ctx.fill();
-    });
-
-    // Particle
-    if (p.signal > 0.3 || p.layer === 2) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, pSize * 3, 0, Math.PI * 2);
-      ctx.fillStyle = rgb(C.g, pAlpha * 0.08);
+      ctx.arc(n.sx, n.sy, nodeSize * 5, 0, Math.PI * 2);
+      ctx.fillStyle = g;
       ctx.fill();
     }
 
     ctx.beginPath();
-    ctx.arc(p.x, p.y, pSize, 0, Math.PI * 2);
-    ctx.fillStyle = p.signal > 0.5 ? rgb([255, 255, 255], pAlpha * 0.9) : rgb(C.g, pAlpha);
+    ctx.arc(n.sx, n.sy, nodeSize, 0, Math.PI * 2);
+    ctx.fillStyle = n.signal > 0.6 ? rgb([255,255,255], nodeAlpha) : rgb(C.mid, nodeAlpha);
     ctx.fill();
 
-    p.signal = Math.max(0, p.signal - 0.025);
-    if (Math.random() < 0.001 * (1 + e * 4 + beat * 5)) p.signal = 1;
+    if (n.scale > 0.85) {
+      ctx.beginPath();
+      ctx.arc(n.sx, n.sy, nodeSize * 1.8, 0, Math.PI * 2);
+      ctx.strokeStyle = rgb(C.core, (0.08 + n.signal * 0.2) * n.scale);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
   });
 
-  // ── GRADIENTE DE PROFUNDIDAD ──
-  const depth = ctx.createRadialGradient(c2, ch, 0, c2, ch, r);
-  depth.addColorStop(0, rgb(C.a, 0));
-  depth.addColorStop(0.6, rgb(C.r, 0.02 + e * 0.02));
-  depth.addColorStop(0.88, rgb(C.r, 0.06 + beat * 0.04 + e * 0.04));
-  depth.addColorStop(1, rgb(C.a, 0.18 + beat * 0.08 + e * 0.08));
-  ctx.fillStyle = depth;
-  ctx.fillRect(0, 0, sw, sh);
-
-  ctx.restore();
-
-  // ── ANILLO EXTERIOR BRILLANTE ──
-  ctx.save();
-  for (let ring = 0; ring < 3; ring++) {
-    const rr = r * breathe * (1 + ring * 0.01);
-    const ra = (0.08 - ring * 0.02) + beat * 0.06 + e * 0.04;
-    ctx.beginPath();
-    for (let i = 0; i <= 120; i++) {
-      const a = (i / 120) * Math.PI * 2;
-      const n = Math.sin(a * 4 + time * 2) * r * 0.012 * (1 + e * 2 + beat);
-      const px = c2 + Math.cos(a) * (rr + n);
-      const py = ch + Math.sin(a) * (rr + n);
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = ring === 0 ? rgb([255, 255, 255], ra * 0.5) : rgb(C.g, ra);
-    ctx.lineWidth = ring === 0 ? 1.2 : 0.5;
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // ── NÚCLEO ── 
-  const coreR = sw * 0.055 * (1 + beat * 0.15 + e * 0.08) * breathe;
-  for (let l = 4; l >= 0; l--) {
-    const lr = coreR * (1 + l * 0.7);
-    const la = l === 0 ? 0.9 : (0.08 - l * 0.012 + e * 0.05 + beat * 0.04);
-    const cg = ctx.createRadialGradient(c2, ch, 0, c2, ch, lr);
+  // ── Central core — the "consciousness" ──
+  const coreR = W * 0.032 * (1 + beat * 0.2 + e * 0.1);
+  for (let l = 3; l >= 0; l--) {
+    const lr = coreR * (1 + l * 0.9);
+    const la = l === 0 ? 1 : (0.1 - l * 0.02 + e * 0.06 + beat * 0.05);
+    const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, lr);
     if (l === 0) {
-      cg.addColorStop(0, `rgba(255,255,255,1)`);
-      cg.addColorStop(0.3, rgb(C.g, 0.95));
+      cg.addColorStop(0, 'rgba(255,255,255,1)');
+      cg.addColorStop(0.4, rgb(C.core, 0.95));
       cg.addColorStop(1, 'rgba(0,0,0,0)');
     } else {
-      cg.addColorStop(0, rgb(C.g, la));
-      cg.addColorStop(0.5, rgb(C.r, la * 0.5));
+      cg.addColorStop(0, rgb(C.core, la));
+      cg.addColorStop(0.6, rgb(C.mid, la * 0.4));
       cg.addColorStop(1, 'rgba(0,0,0,0)');
     }
     ctx.beginPath();
-    ctx.arc(c2, ch, lr, 0, Math.PI * 2);
+    ctx.arc(cx, cy, lr, 0, Math.PI * 2);
     ctx.fillStyle = cg;
     ctx.fill();
   }
 
-  // ── REFLEJO ESPECULAR ──
-  const spec = ctx.createRadialGradient(
-    c2 - r * 0.25, ch - r * 0.3, 0,
-    c2 - r * 0.08, ch - r * 0.08, r * 0.55
-  );
-  spec.addColorStop(0, 'rgba(255,255,255,0.18)');
-  spec.addColorStop(0.4, 'rgba(255,255,255,0.04)');
-  spec.addColorStop(1, 'rgba(255,255,255,0)');
+  // ── Outer field boundary — subtle breathing sphere ──
   ctx.beginPath();
-  for (let i = 0; i <= 120; i++) {
-    const a = (i / 120) * Math.PI * 2;
-    const n = Math.sin(a * 4 + time * 2) * r * 0.012;
-    const rr = r * breathe + n;
-    const px = c2 + Math.cos(a) * rr, py = ch + Math.sin(a) * rr;
+  for (let i = 0; i <= 90; i++) {
+    const a = (i / 90) * Math.PI * 2;
+    const wobble = Math.sin(a * 4 + time * 1.5) * R * 0.015 * (1 + e * 2 + beat);
+    const rr = R * 1.22 + wobble;
+    const px = cx + Math.cos(a) * rr;
+    const py = cy + Math.sin(a) * rr * 0.85;
     i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
   }
   ctx.closePath();
-  ctx.fillStyle = spec;
-  ctx.fill();
+  ctx.strokeStyle = rgb(C.mid, 0.05 + beat * 0.04 + e * 0.03);
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
 }
 
 export function setOrb(s) {
@@ -386,7 +333,7 @@ export function setOrb(s) {
     el.textContent = labels[s] || 'en espera';
     el.className = 'entity-state' + (s !== 'idle' ? ' active' : '');
   }
-  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.45);
+  if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.5);
   else setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1500);
 }
 

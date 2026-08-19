@@ -127,6 +127,26 @@ export function formatearMemoria(mem) {
   return lineas.join('\n');
 }
 
+// Extrae un objeto JSON de un texto que puede venir con markdown, texto extra, etc.
+function extraerJsonDeTexto(texto) {
+  if (!texto || typeof texto !== 'string') return null;
+
+  let limpio = texto.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+
+  // Intento directo
+  try { return JSON.parse(limpio); } catch (e) {}
+
+  // Buscar el primer { y el último } — por si hay texto antes/después
+  const start = limpio.indexOf('{');
+  const end = limpio.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    const candidato = limpio.substring(start, end + 1);
+    try { return JSON.parse(candidato); } catch (e) {}
+  }
+
+  return null;
+}
+
 // Analizar conversación y extraer datos para la memoria estructurada
 export async function extraerYGuardarMemoria(hist, memActual) {
   try {
@@ -157,38 +177,57 @@ Reglas:
 - Si algo ya está en la memoria y sigue siendo válido, no lo incluyas
 - Si algo ha cambiado o es incorrecto, inclúyelo en "eliminar" primero
 - Sé conciso en los valores (máximo 100 caracteres)
+- Devuelve SOLO el JSON, nada de texto antes o después
 - Si no hay nada nuevo, devuelve {}`;
 
-    const respuesta = await groq(prompt, 'openai/gpt-oss-20b', 600);
-
-    // Limpiar y parsear JSON
-    const jsonStr = respuesta.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const datos = JSON.parse(jsonStr);
-
-    if (!datos || Object.keys(datos).length === 0) return;
-
-    // Procesar eliminaciones primero
-    if (datos.eliminar && Array.isArray(datos.eliminar)) {
-      for (const { categoria, clave } of datos.eliminar) {
-        await delMemoria(categoria, clave);
-      }
-      delete datos.eliminar;
+    let respuesta;
+    try {
+      respuesta = await groq(prompt, 'openai/gpt-oss-20b', 600);
+    } catch (e) {
+      console.warn('extraerYGuardarMemoria: fallo en llamada a Groq:', e.message);
+      return;
     }
 
-    // Guardar nuevos datos
-    const categorias = ['persona', 'proyecto', 'preferencia', 'decision', 'dato', 'habito', 'contacto'];
-    for (const cat of categorias) {
-      if (!datos[cat]) continue;
-      for (const [clave, valor] of Object.entries(datos[cat])) {
-        if (clave && valor) {
-          await setMemoria(cat, clave, valor);
+    const datos = extraerJsonDeTexto(respuesta);
+
+    if (!datos) {
+      console.warn('extraerYGuardarMemoria: la IA no devolvió JSON válido, se omite esta extracción. Respuesta recibida:', respuesta?.substring(0, 200));
+      return;
+    }
+
+    if (Object.keys(datos).length === 0) return;
+
+    const categoriasValidas = new Set(['persona', 'proyecto', 'preferencia', 'decision', 'dato', 'habito', 'contacto']);
+
+    // Procesar eliminaciones primero, validando estructura
+    if (Array.isArray(datos.eliminar)) {
+      for (const item of datos.eliminar) {
+        if (item && typeof item === 'object' && item.categoria && item.clave) {
+          try { await delMemoria(item.categoria, item.clave); }
+          catch (e) { console.warn('Error eliminando', item, e.message); }
         }
+      }
+    }
+    delete datos.eliminar;
+
+    // Guardar nuevos datos, validando cada categoría y valor
+    for (const cat of categoriasValidas) {
+      const entradas = datos[cat];
+      if (!entradas || typeof entradas !== 'object') continue;
+
+      for (const [clave, valor] of Object.entries(entradas)) {
+        if (!clave || valor === null || valor === undefined) continue;
+        const valorStr = typeof valor === 'string' ? valor : JSON.stringify(valor);
+        if (!valorStr.trim()) continue;
+
+        try { await setMemoria(cat, clave, valorStr.substring(0, 300)); }
+        catch (e) { console.warn(`Error guardando ${cat}.${clave}:`, e.message); }
       }
     }
 
     console.log('✅ Memoria estructurada actualizada');
   } catch (e) {
-    console.warn('extraerYGuardarMemoria:', e.message);
+    console.warn('extraerYGuardarMemoria: error inesperado:', e.message);
   }
 }
 
@@ -201,27 +240,60 @@ export async function groq(prompt, model = 'openai/gpt-oss-20b', max = 800, msgs
 }
 
 export async function groqChat(messages, model, maxTokens) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('groqChat: mensajes vacíos o inválidos');
+  }
+  if (!API_KEY) {
+    throw new Error('groqChat: falta la API key de Groq en config.js');
+  }
+
   const maxAttempts = 4;
   let delay = 2000;
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages })
-    });
+    let r;
+    try {
+      r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+        body: JSON.stringify({ model, max_tokens: maxTokens, messages }),
+        signal: AbortSignal.timeout(30000)
+      });
+    } catch (e) {
+      if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+        throw new Error('Groq no respondió a tiempo (timeout 30s)');
+      }
+      throw new Error('No se pudo conectar con Groq: ' + e.message);
+    }
+
     if (r.status === 429) {
-      console.warn(`Rate limit, reintento ${attempt} en ${delay}ms`);
+      console.warn(`Rate limit, reintento ${attempt}/${maxAttempts} en ${delay}ms`);
+      if (attempt === maxAttempts) throw new Error('Límite de velocidad de Groq excedido tras varios reintentos');
       await new Promise(res => setTimeout(res, delay));
       delay *= 2;
       continue;
     }
+
+    if (r.status === 400) {
+      const err = await r.json().catch(() => null);
+      throw new Error(`Groq 400: ${err?.error?.message || 'Petición inválida (posible historial demasiado largo o modelo incorrecto)'}`);
+    }
+
     if (!r.ok) {
       const err = await r.json().catch(() => ({ error: { message: `HTTP ${r.status}` } }));
-      throw new Error(err.error?.message || 'Error de Groq');
+      throw new Error(err.error?.message || `Error de Groq (${r.status})`);
     }
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-    return d.choices[0].message.content;
+
+    const d = await r.json().catch(() => null);
+    if (!d) throw new Error('Groq devolvió una respuesta no parseable');
+    if (d.error) throw new Error(d.error.message || 'Error desconocido de Groq');
+
+    const contenido = d.choices?.[0]?.message?.content;
+    if (contenido === undefined || contenido === null) {
+      throw new Error('Groq devolvió una respuesta sin contenido');
+    }
+
+    return contenido;
   }
   throw new Error('Límite de velocidad excedido');
 }

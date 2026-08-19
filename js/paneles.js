@@ -2,16 +2,35 @@ import { state } from './state.js';
 
 export function openPanel(id) {
   const ov = document.getElementById('ov-' + id);
-  if (ov) {
-    ov.classList.add('open');
-    const fp = ov.querySelector('.fp');
-    if (fp) initDraggable(fp);
+  if (!ov) return;
+  ov.classList.remove('closing');
+  ov.classList.add('open');
+  const fp = ov.querySelector('.fp');
+  if (fp) {
+    fp.style.animation = 'none';
+    void fp.offsetWidth;
+    fp.style.animation = '';
+    initDraggable(fp);
   }
 }
 
 export function closePanel(id) {
   const ov = document.getElementById('ov-' + id);
-  if (ov) ov.classList.remove('open');
+  if (!ov || !ov.classList.contains('open')) return;
+
+  ov.classList.add('closing');
+
+  const onEnd = () => {
+    ov.classList.remove('open', 'closing');
+    ov.removeEventListener('animationend', onEnd);
+  };
+  ov.addEventListener('animationend', onEnd);
+
+  setTimeout(() => {
+    if (ov.classList.contains('closing')) {
+      ov.classList.remove('open', 'closing');
+    }
+  }, 500);
 }
 
 export function closeOnBg(e, id) {
@@ -27,7 +46,6 @@ export function detectPanel(txt) {
   else if (t.includes('marketing') || t.includes('campaña')) openPanel('marketing');
 }
 
-// Sistema para arrastrar ventanas emergentes por la cabecera
 function initDraggable(el) {
   const header = el.querySelector('.fp-header');
   if (!header || el.dataset.draggable) return;

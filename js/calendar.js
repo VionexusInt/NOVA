@@ -4,51 +4,120 @@ import { state } from './state.js';
 import { addMsg } from './chat.js';
 import { speak } from './audio.js';
 
-let gapiLoaded = false;
+let tokenClient = null;
+let accessToken = null;
+let tokenExpiry = 0;
+let gisLoaded = false;
 let calCheckInterval = null;
 
+const CAL_API = 'https://www.googleapis.com/calendar/v3';
+const TOKEN_STORAGE_KEY = 'nova_gcal_token';
+
+function guardarToken(token, expiresInSec) {
+  accessToken = token;
+  tokenExpiry = Date.now() + (expiresInSec * 1000) - 60000;
+  try {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ token, expiry: tokenExpiry }));
+  } catch (e) {}
+}
+
+function cargarTokenGuardado() {
+  try {
+    const raw = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    if (!raw) return false;
+    const { token, expiry } = JSON.parse(raw);
+    if (expiry > Date.now()) {
+      accessToken = token;
+      tokenExpiry = expiry;
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function tokenValido() {
+  return accessToken && Date.now() < tokenExpiry;
+}
+
+async function cargarGIS() {
+  if (gisLoaded) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('No se pudo cargar Google Identity Services'));
+    document.head.appendChild(script);
+  });
+  gisLoaded = true;
+}
+
 export async function initCalendar() {
-  if (state.calConn) { loadCalEvents(); return; }
-
-  const setup = document.getElementById('calSetup');
-  if (setup) setup.innerHTML = '<p style="color:var(--muted);font-size:13px;">Conectando...</p>';
-
-  if (!gapiLoaded) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://apis.google.com/js/api.js';
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-    gapiLoaded = true;
+  if (cargarTokenGuardado() && tokenValido()) {
+    state.calConn = true;
+    await loadCalEvents();
+    iniciarMonitorCalendario();
+    return;
   }
 
-  await new Promise((resolve, reject) => {
-    gapi.load('client:auth2', { callback: resolve, onerror: reject });
-  });
+  const setup = document.getElementById('calSetup');
+  if (setup) setup.innerHTML = '<p style="color:var(--text-mid);font-size:13px;">Conectando...</p>';
 
   try {
-    await gapi.client.init({
-      clientId: GCAL_ID,
-      scope: 'https://www.googleapis.com/auth/calendar',
-      discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest']
+    await cargarGIS();
+
+    await new Promise((resolve, reject) => {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GCAL_ID,
+        scope: 'https://www.googleapis.com/auth/calendar',
+        callback: (response) => {
+          if (response.error) {
+            reject(new Error(response.error));
+            return;
+          }
+          guardarToken(response.access_token, response.expires_in || 3600);
+          resolve();
+        },
+        error_callback: (err) => reject(new Error(err.type || 'Error de autenticación')),
+      });
+      tokenClient.requestAccessToken({ prompt: '' });
     });
 
-    const auth = gapi.auth2.getAuthInstance();
-    if (!auth.isSignedIn.get()) {
-      await auth.signIn();
-    }
-
     state.calConn = true;
-    loadCalEvents();
+    await loadCalEvents();
     iniciarMonitorCalendario();
 
   } catch (e) {
-    const setup = document.getElementById('calSetup');
-    if (setup) setup.innerHTML = `<p style="color:var(--red);font-size:13px;">Error: ${esc(e.error || e.message || 'No se pudo conectar')}</p><button class="action-btn" id="btnConnectCal" style="margin-top:10px;">REINTENTAR</button>`;
+    state.calConn = false;
+    if (setup) {
+      setup.innerHTML = `<p style="color:var(--red, #e87070);font-size:13px;">Error: ${esc(e.message || 'No se pudo conectar')}</p><button class="action-btn" id="btnConnectCal" style="margin-top:10px;">reintentar</button>`;
+    }
     document.getElementById('btnConnectCal')?.addEventListener('click', initCalendar);
   }
+}
+
+async function calFetch(path, options = {}) {
+  if (!tokenValido()) {
+    throw new Error('Token expirado. Reconecta el calendario.');
+  }
+  const r = await fetch(`${CAL_API}${path}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (r.status === 401) {
+    accessToken = null;
+    state.calConn = false;
+    throw new Error('Sesión de calendario expirada. Reconecta.');
+  }
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`Google Calendar ${r.status}: ${body.substring(0, 150)}`);
+  }
+  return r.json();
 }
 
 export async function loadCalEvents() {
@@ -58,10 +127,16 @@ export async function loadCalEvents() {
   if (!evEl) return;
   evEl.style.display = 'block';
 
-  const eventos = await getEventos(7);
+  let eventos = [];
+  try {
+    eventos = await getEventos(7);
+  } catch (e) {
+    evEl.innerHTML = `<div class="empty">Error cargando eventos: ${esc(e.message)}</div>`;
+    return;
+  }
 
   if (eventos.length === 0) {
-    evEl.innerHTML = '<div class="empty">// SIN EVENTOS LOS PRÓXIMOS 7 DÍAS //</div>';
+    evEl.innerHTML = '<div class="empty">Sin eventos los próximos 7 días</div>';
     return;
   }
 
@@ -86,16 +161,19 @@ async function getEventos(dias = 7) {
   try {
     const now = new Date();
     const end = new Date(now.getTime() + dias * 24 * 60 * 60 * 1000);
-    const r = await gapi.client.calendar.events.list({
-      calendarId: 'primary',
+    const params = new URLSearchParams({
       timeMin: now.toISOString(),
       timeMax: end.toISOString(),
-      singleEvents: true,
+      singleEvents: 'true',
       orderBy: 'startTime',
-      maxResults: 20
+      maxResults: '20'
     });
-    return r.result.items || [];
-  } catch (e) { return []; }
+    const d = await calFetch(`/calendars/primary/events?${params}`);
+    return d.items || [];
+  } catch (e) {
+    console.warn('getEventos:', e.message);
+    return [];
+  }
 }
 
 export async function getEventosHoy() {
@@ -104,40 +182,54 @@ export async function getEventosHoy() {
     const now = new Date();
     const end = new Date(now);
     end.setHours(23, 59, 59, 999);
-    const r = await gapi.client.calendar.events.list({
-      calendarId: 'primary',
+    const params = new URLSearchParams({
       timeMin: now.toISOString(),
       timeMax: end.toISOString(),
-      singleEvents: true,
+      singleEvents: 'true',
       orderBy: 'startTime',
-      maxResults: 10
+      maxResults: '10'
     });
-    return r.result.items || [];
-  } catch (e) { return []; }
+    const d = await calFetch(`/calendars/primary/events?${params}`);
+    return d.items || [];
+  } catch (e) {
+    console.warn('getEventosHoy:', e.message);
+    return [];
+  }
 }
 
 export async function crearEvento(titulo, fecha, hora, duracionMin = 60, descripcion = '') {
   if (!state.calConn) return null;
   try {
     const start = new Date(`${fecha}T${hora}:00`);
+    if (isNaN(start.getTime())) throw new Error('Fecha u hora inválida');
     const end = new Date(start.getTime() + duracionMin * 60 * 1000);
-    const r = await gapi.client.calendar.events.insert({
-      calendarId: 'primary',
-      resource: {
-        summary: titulo,
-        description: descripcion,
-        start: { dateTime: start.toISOString(), timeZone: 'Europe/Madrid' },
-        end: { dateTime: end.toISOString(), timeZone: 'Europe/Madrid' }
-      }
+
+    const body = {
+      summary: titulo,
+      description: descripcion,
+      start: { dateTime: start.toISOString(), timeZone: 'Europe/Madrid' },
+      end: { dateTime: end.toISOString(), timeZone: 'Europe/Madrid' }
+    };
+
+    return await calFetch('/calendars/primary/events', {
+      method: 'POST',
+      body: JSON.stringify(body)
     });
-    return r.result;
-  } catch (e) { console.error('Error creando evento:', e); return null; }
+  } catch (e) {
+    console.error('Error creando evento:', e.message);
+    return null;
+  }
 }
 
 export async function getResumenCalendario() {
   if (!state.calConn) return 'El calendario no está conectado.';
-  const hoy = await getEventosHoy();
-  const semana = await getEventos(7);
+
+  let hoy = [], semana = [];
+  try {
+    [hoy, semana] = await Promise.all([getEventosHoy(), getEventos(7)]);
+  } catch (e) {
+    return 'No se pudo consultar el calendario en este momento.';
+  }
 
   let resumen = '';
 
@@ -147,8 +239,8 @@ export async function getResumenCalendario() {
     resumen += `Hoy tienes ${hoy.length} evento${hoy.length > 1 ? 's' : ''}: `;
     resumen += hoy.map(e => {
       const s = e.start.dateTime ? new Date(e.start.dateTime) : null;
-      const hora = s ? s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
-      return `${e.summary}${hora ? ' a las ' + hora : ''}`;
+      const h = s ? s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+      return `${e.summary}${h ? ' a las ' + h : ''}`;
     }).join(', ') + '.';
   }
 
@@ -169,20 +261,20 @@ function iniciarMonitorCalendario() {
   if (calCheckInterval) clearInterval(calCheckInterval);
 
   calCheckInterval = setInterval(async () => {
-    if (!state.calConn) return;
+    if (!state.calConn || !tokenValido()) return;
     try {
       const now = new Date();
       const in15 = new Date(now.getTime() + 16 * 60 * 1000);
-      const r = await gapi.client.calendar.events.list({
-        calendarId: 'primary',
+      const params = new URLSearchParams({
         timeMin: now.toISOString(),
         timeMax: in15.toISOString(),
-        singleEvents: true,
+        singleEvents: 'true',
         orderBy: 'startTime',
-        maxResults: 5
+        maxResults: '5'
       });
+      const d = await calFetch(`/calendars/primary/events?${params}`);
+      const eventos = d.items || [];
 
-      const eventos = r.result.items || [];
       for (const ev of eventos) {
         const start = new Date(ev.start.dateTime || ev.start.date);
         const minutos = Math.round((start - now) / 60000);
@@ -195,10 +287,16 @@ function iniciarMonitorCalendario() {
           if (state.audioOn) speak(`En ${minutos} minutos tienes ${ev.summary}`);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Si el token expiró silenciosamente, marcar desconectado
+      if (e.message?.includes('expirad')) {
+        state.calConn = false;
+        clearInterval(calCheckInterval);
+      }
+    }
   }, 60000);
 }
 
 export async function calendarDisponible() {
-  return state.calConn;
+  return state.calConn && tokenValido();
 }
