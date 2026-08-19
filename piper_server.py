@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import os
+import re
 import traceback
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify
@@ -15,79 +16,112 @@ MODELS_DIR = Path(__file__).parent / "voces"
 MODELS_DIR.mkdir(exist_ok=True)
 
 VOCES = {
+    "carlfm": {
+        "nombre": "es_ES-carlfm-high",
+        "url": "https://huggingface.co/friyin/vits-piper-es_ES-carlfm-high/resolve/main",
+        "lang": "es",
+        "desc": "Espanol alta calidad, masculina profesional",
+    },
     "sharvard": {
         "nombre": "es_ES-sharvard-medium",
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/sharvard/medium",
         "lang": "es",
-        "desc": "Espanol de Espana, masculina, clara y profesional",
+        "desc": "Espanol masculina clara",
     },
     "davefx": {
         "nombre": "es_ES-davefx-medium",
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium",
         "lang": "es",
-        "desc": "Espanol de Espana, masculina, neutra",
-    },
-    "carlfm": {
-        "nombre": "es_ES-carlfm-high",
-        "url": "https://huggingface.co/friyin/vits-piper-es_ES-carlfm-high/resolve/main",
-        "lang": "es",
-        "desc": "Espanol de Espana, grave y lenta",
+        "desc": "Espanol masculina neutra",
     },
 }
 
 # ============================================================
-# CONFIGURACION DEFINITIVA - VOZ MASCULINA PROFESIONAL
+# CONFIGURACION JARVIS - Replica exacta del audio de muestra
 # ============================================================
+# Analisis del audio de muestra:
+# - Pitch: ~147 Hz (voz muy grave)
+# - Formantes: F1=215Hz, F2=334Hz, F3=452Hz (muy bajos)
+# - Energia: 91.6% por debajo de 500 Hz (muy grave)
+# - Eco metalico visible
+# - Compresion fuerte
 
-# "sharvard" = es_ES-sharvard-medium
-#   Voz masculina espanola, clara, profesional
-#   NO es femenina, NO es mexicana, NO es grave/lenta
-#
-# "davefx" = alternativa si sharvard no convence
-# "carlfm" = solo si quieres voz de narrador documental
+VOZ_ACTIVA = "carlfm"
 
-VOZ_ACTIVA = "sharvard"
-
-# PARAMETROS ULTRA-AFINADOS (no robotico, no imperativo):
-# length_scale: 0.88 = ritmo rapido-profesional pero natural
-# noise_scale: 0.48 = expresivo y humano (0.3=robot, 0.6=dramatico)
-# noise_w: 0.45 = cadencia natural con variacion sutil
-# sentence_silence: 0.18 = pausas suaves entre frases
-LENGTH_SCALE = 0.88
-NOISE_SCALE = 0.48
+# Sintesis: parametros para voz grave y lenta
+LENGTH_SCALE = 0.95
+NOISE_SCALE = 0.5
 NOISE_W = 0.45
-SENTENCE_SILENCE = 0.18
+SENTENCE_SILENCE = 0.2
 
-# POST-PROCESO: "sutil" o "ninguno"
-#   "sutil" = compresion ligera + normalizacion + eco de sala muy leve
-#   "ninguno" = solo normalizacion de volumen (maxima naturalidad)
-MODO_POSTPROCESO = "sutil"
+# PITCH SHIFTING: bajar la voz para que suene mas grave
+# Factor 0.72 = baja el pitch un 28% (de ~200Hz a ~144Hz)
+# Ajusta esto si quieres mas o menos grave:
+#   0.65 = muy grave (tipo Darth Vader)
+#   0.72 = grave (tipo JARVIS) <-- RECOMENDADO
+#   0.80 = grave moderado
+#   1.0 = sin cambio
+PITCH_FACTOR = 0.72
 
 # ============================================================
-# FILTROS FFmpeg
+# POST-PROCESAMIENTO: Replica exacta del perfil de frecuencias
 # ============================================================
+# Orden de operaciones CRITICO:
+# 1. asetrate = cambia el pitch (baja la voz)
+# 2. atempo = compensa la velocidad para que no suene lenta
+# 3. highpass = elimina sub-graves
+# 4. lowpass = corta agudos (el original corta en ~900 Hz)
+# 5. equalizer = boost masivo en graves (200-500 Hz)
+# 6. aecho = eco metalico
+# 7. acompressor = compresion fuerte
+# 8. loudnorm = volumen uniforme
 
-# Sutil: compresion ligera, normalizacion, y un eco de sala muy leve
-# para dar profundidad sin sonar metalico
-FFMPEG_SUTIL = (
-    "acompressor=threshold=-20dB:ratio=2.5:attack=6:release=80,"
-    "aecho=0.25:0.2:35:0.05,"
-    "equalizer=f=350:t=q:w=1:g=1.2,"
-    "equalizer=f=2000:t=q:w=1.2:g=1.5,"
-    "loudnorm=I=-16:TP=-1.5:LRA=10"
+FFMPEG_JARVIS = (
+    "asetrate=22050*" + str(PITCH_FACTOR) + ","
+    "atempo=" + str(1.0/PITCH_FACTOR) + ","
+    "highpass=f=60,"
+    "lowpass=f=900,"
+    "equalizer=f=100:t=q:w=2:g=8,"
+    "equalizer=f=200:t=q:w=1.5:g=10,"
+    "equalizer=f=300:t=q:w=1:g=8,"
+    "equalizer=f=400:t=q:w=1:g=6,"
+    "equalizer=f=500:t=q:w=1:g=4,"
+    "equalizer=f=700:t=q:w=1:g=-2,"
+    "equalizer=f=1000:t=q:w=1:g=-8,"
+    "aecho=0.5:0.4:15:0.2,"
+    "acompressor=threshold=-20dB:ratio=8:attack=1:release=30,"
+    "loudnorm=I=-14:TP=-1:LRA=4"
 )
 
-# Ninguno: solo compresion y normalizacion, sin efectos
-FFMPEG_NINGUNO = (
-    "acompressor=threshold=-18dB:ratio=2:attack=8:release=100,"
-    "loudnorm=I=-16:TP=-1.5:LRA=12"
+# Alternativa sin efecto JARVIS:
+FFMPEG_NATURAL = (
+    "acompressor=threshold=-20dB:ratio=2:attack=8:release=100,"
+    "loudnorm=I=-15:TP=-1:LRA=13"
 )
 
-FFMPEG_FILTRO = FFMPEG_SUTIL if MODO_POSTPROCESO == "sutil" else FFMPEG_NINGUNO
+# Cambia esto: "jarvis" o "natural"
+MODO_AUDIO = "jarvis"
 
+FFMPEG_FILTRO = FFMPEG_JARVIS if MODO_AUDIO == "jarvis" else FFMPEG_NATURAL
 POST_PROCESADO_ACTIVO = True
 
 _ffmpeg_disponible = None
+
+
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F1E0-\U0001F1FF"
+    "\U00002600-\U000026FF"
+    "\U00002700-\U000027BF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U000024C2-\U0001F251"
+    "]+",
+    flags=re.UNICODE,
+)
 
 
 def comprobar_ffmpeg():
@@ -100,7 +134,7 @@ def comprobar_ffmpeg():
             capture_output=True, check=True, timeout=5
         )
         _ffmpeg_disponible = True
-        print("FFmpeg detectado.")
+        print("FFmpeg OK.")
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         _ffmpeg_disponible = False
         print("FFmpeg no encontrado. Audio sin post-procesar.")
@@ -122,8 +156,22 @@ def descargar_modelo_si_falta(clave):
     return onnx_path, json_path
 
 
+def preparar_texto_prosodia(texto):
+    texto = texto.strip()
+    if texto and texto[-1] not in '.!?':
+        texto += '.'
+    texto = re.sub(r'\s+', ' ', texto)
+    texto = re.sub(r'([.,;:!?])([^\s])', r'\1 \2', texto)
+    texto = _EMOJI_PATTERN.sub('', texto)
+    texto = texto.replace('⚡', '').replace('✅', '').replace('⚠️', '').replace('⚠', '')
+    texto = texto.replace('🔍', '').replace('📄', '').replace('⏪', '').replace('❌', '')
+    texto = texto.replace('📋', '').replace('🔧', '').replace('🎙️', '')
+    texto = ''.join(c for c in texto if c.isprintable() or c in '\n\t')
+    return texto.strip()
+
+
 def postprocesar_audio(wav_path):
-    if not comprobar_ffmpeg():
+    if not POST_PROCESADO_ACTIVO or not comprobar_ffmpeg():
         return wav_path
     path_out = wav_path.replace('.wav', '_out.wav')
     try:
@@ -137,15 +185,18 @@ def postprocesar_audio(wav_path):
         )
         return path_out
     except Exception as e:
-        print(f"Error post-procesamiento: {e}")
+        print(f"Error post-proceso: {e}")
         return wav_path
 
 
 def sintetizar_wav(texto):
     onnx_path, json_path = descargar_modelo_si_falta(VOZ_ACTIVA)
+    texto_procesado = preparar_texto_prosodia(texto)
+    if not texto_procesado:
+        raise ValueError("Texto vacio despues de limpiar")
     
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f_in:
-        f_in.write(texto)
+        f_in.write(texto_procesado)
         txt_path = f_in.name
     
     wav_path = txt_path.replace('.txt', '.wav')
@@ -168,19 +219,24 @@ def sintetizar_wav(texto):
         if result.returncode != 0:
             raise RuntimeError(f"Piper error: {result.stderr}")
         
-        if POST_PROCESADO_ACTIVO:
-            wav_path = postprocesar_audio(wav_path)
+        wav_path_final = postprocesar_audio(wav_path)
         
-        with open(wav_path, 'rb') as f:
+        with open(wav_path_final, 'rb') as f:
             audio_bytes = f.read()
         
         return io.BytesIO(audio_bytes)
         
     finally:
-        for p in (txt_path, wav_path, wav_path.replace('.wav', '_out.wav')):
+        for p in (txt_path, wav_path):
             try:
                 if os.path.exists(p):
                     os.remove(p)
+            except Exception:
+                pass
+        out_path = wav_path.replace('.wav', '_out.wav')
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
             except Exception:
                 pass
 
@@ -205,7 +261,8 @@ def ping():
     return jsonify({
         'ok': True,
         'voz': VOCES[VOZ_ACTIVA]['nombre'],
-        'postprocesado': POST_PROCESADO_ACTIVO and comprobar_ffmpeg()
+        'postprocesado': POST_PROCESADO_ACTIVO and comprobar_ffmpeg(),
+        'modo_audio': MODO_AUDIO,
     })
 
 
@@ -222,8 +279,9 @@ if __name__ == '__main__':
     print("NOVA - Servidor de voz (Piper TTS)")
     print(f"Voz: {VOCES[VOZ_ACTIVA]['nombre']}")
     print(f"  -> {VOCES[VOZ_ACTIVA]['desc']}")
-    print(f"Velocidad: {LENGTH_SCALE} | Expresion: {NOISE_SCALE} | Cadencia: {NOISE_W}")
-    print(f"Pausas: {SENTENCE_SILENCE}s | Post-proceso: {MODO_POSTPROCESO}")
+    print(f"Pitch shift: {PITCH_FACTOR} ({int((1-PITCH_FACTOR)*100)}% mas grave)")
+    print(f"Ritmo: {LENGTH_SCALE} | Expresion: {NOISE_SCALE} | Cadencia: {NOISE_W}")
+    print(f"Pausas: {SENTENCE_SILENCE}s | Modo: {MODO_AUDIO.upper()}")
     comprobar_ffmpeg()
     print("=" * 60)
     app.run(host='0.0.0.0', port=5000, debug=False)
