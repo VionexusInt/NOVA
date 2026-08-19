@@ -1,32 +1,9 @@
-"""
-Servidor TTS con Piper para NOVA — voz afinada estilo JARVIS en español.
-
-100% local, CPU, gratis, sin límites.
-
-Instalación (una sola vez):
-
-pip install piper-tts flask flask-cors
-
-Requiere FFmpeg instalado en el sistema para el post-procesamiento de audio:
-
-Windows: descargar de https://ffmpeg.org/download.html y añadir al PATH
-
-(comprueba con: ffmpeg -version en una terminal)
-
-Arranque:
-
-python piper_server.py
-
-La primera vez descarga automáticamente los modelos de voz (~120MB).
-
-"""
-
 import io
-import wave
-import re
 import subprocess
+import sys
 import tempfile
 import os
+import traceback
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
@@ -64,8 +41,8 @@ FFMPEG_FILTRO = (
     "equalizer=f=3000:t=q:w=1.5:g=2"
 )
 
-_voice = None
 _ffmpeg_disponible = None
+
 
 def comprobar_ffmpeg():
     global _ffmpeg_disponible
@@ -77,12 +54,13 @@ def comprobar_ffmpeg():
             capture_output=True, check=True, timeout=5
         )
         _ffmpeg_disponible = True
-        print("✅ FFmpeg detectado, post-procesamiento activo.")
+        print("FFmpeg detectado, post-procesamiento activo.")
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         _ffmpeg_disponible = False
-        print("⚠️ FFmpeg no encontrado. El audio sonará sin post-procesar.")
-        print(" Instálalo desde https://ffmpeg.org/download.html para el efecto completo.")
+        print("FFmpeg no encontrado. El audio sonara sin post-procesar.")
+        print("Instalalo desde https://ffmpeg.org/download.html para el efecto completo.")
     return _ffmpeg_disponible
+
 
 def descargar_modelo_si_falta(clave):
     import urllib.request
@@ -91,100 +69,74 @@ def descargar_modelo_si_falta(clave):
     json_path = MODELS_DIR / f"{info['nombre']}.onnx.json"
     if onnx_path.exists() and json_path.exists():
         return onnx_path, json_path
-    print(f"📥 Descargando modelo de voz {info['nombre']} (solo la primera vez)...")
+    print(f"Descargando modelo de voz {info['nombre']} (solo la primera vez)...")
     urllib.request.urlretrieve(f"{info['url']}/{info['nombre']}.onnx", onnx_path)
     urllib.request.urlretrieve(f"{info['url']}/{info['nombre']}.onnx.json", json_path)
-    print("✅ Modelo descargado.")
+    print("Modelo descargado.")
     return onnx_path, json_path
 
-def cargar_voz():
-    global _voice
-    if _voice is not None:
-        return _voice
-    from piper import PiperVoice
-    onnx_path, json_path = descargar_modelo_si_falta(VOZ_ACTIVA)
-    print(f"🎙️ Cargando voz {VOCES[VOZ_ACTIVA]['nombre']}...")
-    _voice = PiperVoice.load(str(onnx_path), config_path=str(json_path))
-    print("✅ Voz cargada y lista.")
-    return _voice
 
-def preparar_texto(texto):
-    texto = texto.strip()
-    texto = re.sub(r'([.,;:!?])(?=[^\s])', r'\1 ', texto)
-    return texto
-
-def postprocesar_audio(wav_bytes):
+def postprocesar_audio(wav_path):
     if not comprobar_ffmpeg():
-        return wav_bytes
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f_in:
-        f_in.write(wav_bytes)
-        path_in = f_in.name
-        path_out = path_in.replace('.wav', '_out.wav')
+        return wav_path
+    path_out = wav_path.replace('.wav', '_out.wav')
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", path_in,
+                "ffmpeg", "-y", "-i", wav_path,
                 "-af", FFMPEG_FILTRO,
                 path_out
             ],
             capture_output=True, check=True, timeout=15
         )
-        with open(path_out, 'rb') as f_out:
-            resultado = f_out.read()
-        return resultado
+        return path_out
     except Exception as e:
-        print(f"⚠️ Error en post-procesamiento, usando audio sin filtrar: {e}")
-        return wav_bytes
+        print(f"Error en post-procesamiento, usando audio sin filtrar: {e}")
+        return wav_path
+
+
+def sintetizar_wav(texto):
+    onnx_path, json_path = descargar_modelo_si_falta(VOZ_ACTIVA)
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f_in:
+        f_in.write(texto)
+        txt_path = f_in.name
+    
+    wav_path = txt_path.replace('.txt', '.wav')
+    
+    try:
+        cmd = [
+            sys.executable, "-m", "piper",
+            "--model", str(onnx_path),
+            "--config", str(json_path),
+            "--input", txt_path,
+            "--output_file", wav_path,
+            "--length_scale", str(LENGTH_SCALE),
+            "--noise_scale", str(NOISE_SCALE),
+            "--noise_w", str(NOISE_W),
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            raise RuntimeError(f"Piper error: {result.stderr}")
+        
+        if POST_PROCESADO_ACTIVO:
+            wav_path = postprocesar_audio(wav_path)
+        
+        with open(wav_path, 'rb') as f:
+            audio_bytes = f.read()
+        
+        return io.BytesIO(audio_bytes)
+        
     finally:
-        for p in (path_in, path_out):
+        for p in (txt_path, wav_path, wav_path.replace('.wav', '_out.wav')):
             try:
                 if os.path.exists(p):
                     os.remove(p)
             except Exception:
                 pass
 
-def sintetizar_wav(texto):
-    """
-    Sintetiza texto a WAV usando Piper TTS.
-    
-    FIX CRÍTICO: Inicializamos el header del WAV ANTES de llamar a synthesize.
-    Si synthesize() falla (texto vacío, fonemas no reconocidos, bug de piper-tts),
-    el archivo WAV ya tendrá un header válido y no lanzará 
-    "wave.Error: # channels not specified".
-    """
-    voice = cargar_voz()
-    texto = preparar_texto(texto)
-    
-    if not texto:
-        raise ValueError("Texto vacío después de preparar")
-    
-    buffer = io.BytesIO()
-    wav_file = wave.open(buffer, 'wb')
-    
-    try:
-        # FIX: Inicializar parámetros del WAV ANTES de synthesize
-        # Esto evita el error "# channels not specified" si synthesize() falla
-        wav_file.setnchannels(1)           # Mono
-        wav_file.setsampwidth(2)           # 16-bit
-        wav_file.setframerate(voice.config.sample_rate)
-        
-        voice.synthesize(
-            texto,
-            wav_file,
-            length_scale=LENGTH_SCALE,
-            noise_scale=NOISE_SCALE,
-            noise_w=NOISE_W,
-        )
-    finally:
-        wav_file.close()
-    
-    buffer.seek(0)
-    wav_bytes = buffer.read()
-    
-    if POST_PROCESADO_ACTIVO:
-        wav_bytes = postprocesar_audio(wav_bytes)
-    
-    return io.BytesIO(wav_bytes)
 
 @app.route('/tts', methods=['POST'])
 def tts():
@@ -196,8 +148,10 @@ def tts():
         buffer = sintetizar_wav(texto)
         return send_file(buffer, mimetype='audio/wav')
     except Exception as e:
-        print(f"❌ Error TTS: {e}")
+        print(f"Error TTS: {e}")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/ping', methods=['GET'])
 def ping():
@@ -207,17 +161,18 @@ def ping():
         'postprocesado': POST_PROCESADO_ACTIVO and comprobar_ffmpeg()
     })
 
+
 @app.route('/voces', methods=['GET'])
 def listar_voces():
     return jsonify({'voz_activa': VOZ_ACTIVA, 'disponibles': list(VOCES.keys())})
 
+
 if __name__ == '__main__':
     print("=" * 55)
-    print("🎙️ NOVA — Servidor de voz (Piper TTS, modo JARVIS)")
-    print(f" Voz activa: {VOCES[VOZ_ACTIVA]['nombre']}")
-    print(f" Cadencia: pausada y grave (length_scale={LENGTH_SCALE})")
+    print("NOVA - Servidor de voz (Piper TTS, modo JARVIS)")
+    print(f"Voz activa: {VOCES[VOZ_ACTIVA]['nombre']}")
+    print(f"Cadencia: pausada y grave (length_scale={LENGTH_SCALE})")
     comprobar_ffmpeg()
-    print(" 100% local · sin GPU · sin coste · sin límite")
+    print("100% local - sin GPU - sin coste - sin limite")
     print("=" * 55)
-    cargar_voz()
     app.run(host='0.0.0.0', port=5000, debug=False)
