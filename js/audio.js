@@ -10,24 +10,53 @@ function stopAudio() {
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
 }
 
-// Limpia el texto antes de mandarlo a TTS — emojis y símbolos no se leen bien
-// en voz alta y pueden causar pausas o pronunciaciones extrañas en Piper.
+// Limpia el texto antes de mandarlo a TTS
 function limpiarParaVoz(txt) {
   return txt
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '') // emojis
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
     .replace(/⚡|✅|⚠️|⚠|🔍|📄|⏪|❌|📋|🔧|🎙️/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
+// === CONFIGURACIÓN TTS ===
+// 'piper'  -> localhost:5000 (voz local, WAV)
+// 'edge'   -> localhost:5000 (voz Azure, MP3)
+// 'openai' -> localhost:3000 (voz OpenAI, MP3)
+const TTS_MOTOR = 'piper';
+
+const TTS_URLS = {
+  piper:  'http://localhost:5000/tts',
+  edge:   'http://localhost:5000/tts',
+  openai: 'http://localhost:3000/api/tts',
+};
+
+// MIME type correcto para cada motor
+const TTS_MIME_TYPES = {
+  piper:  'audio/wav',
+  edge:   'audio/mpeg',
+  openai: 'audio/mpeg',
+};
+
 async function fetchAudio(txt) {
-  const response = await fetch('http://localhost:5000/tts', {
+  const url = TTS_URLS[TTS_MOTOR];
+  const mimeType = TTS_MIME_TYPES[TTS_MOTOR];
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: txt.trim() })
   });
-  if (!response.ok) throw new Error('TTS no disponible');
-  const blob = await response.blob();
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => 'Error desconocido');
+    throw new Error(`TTS error ${response.status}: ${errText}`);
+  }
+
+  // Crear blob con el MIME type correcto para que el navegador lo reproduzca bien
+  const arrayBuffer = await response.arrayBuffer();
+  const blob = new Blob([arrayBuffer], { type: mimeType });
+  
   return URL.createObjectURL(blob);
 }
 
@@ -51,6 +80,9 @@ export function speakAndWait(txt) {
     try {
       const url = await fetchAudio(txtLimpio);
       currentAudio = new Audio(url);
+
+      // Forzar precarga para WAV
+      currentAudio.preload = 'auto';
 
       currentAudio.onplay = () => {
         window._novaHablando = true;
@@ -76,7 +108,8 @@ export function speakAndWait(txt) {
         }, 1200);
       };
 
-      currentAudio.onerror = () => {
+      currentAudio.onerror = (e) => {
+        console.warn('Error reproduciendo audio:', e);
         stopAudio(); setOrb('idle'); setTargetLevel(0);
         window._novaHablando = false;
         URL.revokeObjectURL(url);
@@ -84,6 +117,9 @@ export function speakAndWait(txt) {
       };
 
       currentAudio._url = url;
+      
+      // Para WAV, a veces necesita cargarse antes de play()
+      await currentAudio.load();
       await currentAudio.play();
 
     } catch (err) {

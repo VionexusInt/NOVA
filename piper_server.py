@@ -144,10 +144,30 @@ def postprocesar_audio(wav_bytes):
                 pass
 
 def sintetizar_wav(texto):
+    """
+    Sintetiza texto a WAV usando Piper TTS.
+    
+    FIX CRÍTICO: Inicializamos el header del WAV ANTES de llamar a synthesize.
+    Si synthesize() falla (texto vacío, fonemas no reconocidos, bug de piper-tts),
+    el archivo WAV ya tendrá un header válido y no lanzará 
+    "wave.Error: # channels not specified".
+    """
     voice = cargar_voz()
     texto = preparar_texto(texto)
+    
+    if not texto:
+        raise ValueError("Texto vacío después de preparar")
+    
     buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wav_file:
+    wav_file = wave.open(buffer, 'wb')
+    
+    try:
+        # FIX: Inicializar parámetros del WAV ANTES de synthesize
+        # Esto evita el error "# channels not specified" si synthesize() falla
+        wav_file.setnchannels(1)           # Mono
+        wav_file.setsampwidth(2)           # 16-bit
+        wav_file.setframerate(voice.config.sample_rate)
+        
         voice.synthesize(
             texto,
             wav_file,
@@ -155,10 +175,15 @@ def sintetizar_wav(texto):
             noise_scale=NOISE_SCALE,
             noise_w=NOISE_W,
         )
+    finally:
+        wav_file.close()
+    
     buffer.seek(0)
     wav_bytes = buffer.read()
+    
     if POST_PROCESADO_ACTIVO:
         wav_bytes = postprocesar_audio(wav_bytes)
+    
     return io.BytesIO(wav_bytes)
 
 @app.route('/tts', methods=['POST'])
