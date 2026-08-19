@@ -73,36 +73,23 @@ function capturarFrame() {
 }
 
 async function analizarConNvidia(base64Image, prompt) {
-  const r = await fetch(NVIDIA_URL, {
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } },
+      { type: 'text', text: `Eres NOVA, IA personal estilo JARVIS. ${prompt} Responde en español de España. Sé conciso y directo.` }
+    ]
+  }];
+
+  const r = await fetch('http://localhost:4000/api/vision', {
     method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + NVIDIA_KEY,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      max_tokens: 1024,
-      temperature: 0.4,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image_url',
-            image_url: { url: `data:image/jpeg;base64,${base64Image}` }
-          },
-          {
-            type: 'text',
-            text: `Eres NOVA, IA personal estilo JARVIS. ${prompt} Responde en español de España. Sé conciso y directo.`
-          }
-        ]
-      }]
-    })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: NVIDIA_KEY, model: VISION_MODEL, messages })
   });
 
   if (!r.ok) {
     const err = await r.text();
-    throw new Error(`NVIDIA API: ${r.status} - ${err.substring(0, 100)}`);
+    throw new Error(`Vision proxy: ${r.status} - ${err.substring(0, 100)}`);
   }
 
   const d = await r.json();

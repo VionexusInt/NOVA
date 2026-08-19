@@ -738,6 +738,31 @@ def revertir_mejora():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+
+@app.route('/api/vision', methods=['POST'])
+def vision_proxy():
+    data = request.get_json() or {}
+    nvidia_key = data.get('key', '')
+    messages = data.get('messages', [])
+    model = data.get('model', 'meta/llama-4-maverick-17b-128e-instruct')
+    
+    import requests as req_lib
+    try:
+        r = req_lib.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {nvidia_key}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json={'model': model, 'max_tokens': 1024, 'temperature': 0.4, 'messages': messages},
+            timeout=30
+        )
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
     print("📦 Instalando dependencias opcionales...")

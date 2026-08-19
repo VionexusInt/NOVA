@@ -1,6 +1,6 @@
 import { state } from './state.js';
-import { loadMsgs, loadMem, loadMemoriaEstructurada, saveMsg, extraerYGuardarMemoria, formatearMemoria } from './api.js';
-import { addMsg, askNova, sendText, clearHistory, rmTyping } from './chat.js';
+import { loadMsgs, loadMem, loadMemoriaEstructurada, formatearMemoria } from './api.js';
+import { addMsg, sendText, clearHistory, rmTyping } from './chat.js';
 import { openPanel, closePanel, closeOnBg } from './paneles.js';
 import { addTask } from './tareas.js';
 import { genEmail } from './email.js';
@@ -12,7 +12,6 @@ import { initCodeStyles } from './programacion.js';
 import { initMejoraStyles } from './mejora.js';
 import { activarModoDespertar } from './wake.js';
 import { toggleMic, initWakeWord } from './mic.js';
-import { speak } from './audio.js';
 import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
 
@@ -29,11 +28,8 @@ function tick() {
 }
 setInterval(tick, 1000); tick();
 
-const sesEl = document.getElementById('sesId');
-if (sesEl) sesEl.textContent = 'SES-' + Math.random().toString(36).substring(2,9).toUpperCase();
-
 document.getElementById('btnSend')?.addEventListener('click', sendText);
-document.getElementById('txtIn')?.addEventListener('keydown', e => { if (e.key==='Enter') sendText(); });
+document.getElementById('txtIn')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendText(); });
 document.getElementById('micBtn')?.addEventListener('click', toggleMic);
 document.getElementById('btnReset')?.addEventListener('click', clearHistory);
 
@@ -44,18 +40,18 @@ document.getElementById('qaCalendar')?.addEventListener('click', () => openPanel
 document.getElementById('qaMarketing')?.addEventListener('click', () => openPanel('marketing'));
 document.getElementById('qaMemoria')?.addEventListener('click', abrirPanelMemoria);
 
-document.getElementById('ov-tasks')?.addEventListener('click', e => closeOnBg(e,'tasks'));
-document.getElementById('ov-email')?.addEventListener('click', e => closeOnBg(e,'email'));
-document.getElementById('ov-briefing')?.addEventListener('click', e => closeOnBg(e,'briefing'));
-document.getElementById('ov-calendar')?.addEventListener('click', e => closeOnBg(e,'calendar'));
-document.getElementById('ov-marketing')?.addEventListener('click', e => closeOnBg(e,'marketing'));
+document.getElementById('ov-tasks')?.addEventListener('click', e => closeOnBg(e, 'tasks'));
+document.getElementById('ov-email')?.addEventListener('click', e => closeOnBg(e, 'email'));
+document.getElementById('ov-briefing')?.addEventListener('click', e => closeOnBg(e, 'briefing'));
+document.getElementById('ov-calendar')?.addEventListener('click', e => closeOnBg(e, 'calendar'));
+document.getElementById('ov-marketing')?.addEventListener('click', e => closeOnBg(e, 'marketing'));
 
 document.querySelectorAll('.fp-close').forEach(btn => {
   btn.addEventListener('click', () => closePanel(btn.dataset.panel));
 });
 
 document.getElementById('btnAddTask')?.addEventListener('click', addTask);
-document.getElementById('taskIn')?.addEventListener('keydown', e => { if (e.key==='Enter') addTask(); });
+document.getElementById('taskIn')?.addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
 document.getElementById('btnGenEmail')?.addEventListener('click', genEmail);
 document.getElementById('copyBtnEmail')?.addEventListener('click', () => copyTxt('eResult'));
 document.getElementById('btnGenBriefing')?.addEventListener('click', genBriefing);
@@ -82,26 +78,26 @@ async function initApp() {
 
     state.mem = memory || '';
     state.memEstructurada = memEstructurada || {};
-    state.hist = todos.map(m => ({
+
+    // Solo los últimos 10 en memoria para evitar 400 en Groq
+    state.hist = todos.slice(-10).map(m => ({
       role: m.rol === 'user' ? 'user' : 'assistant',
       content: m.contenido.trim()
     }));
-    state.msgN = state.hist.length;
+    state.msgN = todos.length;
 
     const memFormateada = formatearMemoria(state.memEstructurada);
-    if (memFormateada) console.log('🧠 Memoria estructurada cargada:\n' + memFormateada);
+    if (memFormateada) console.log('🧠 Memoria:\n' + memFormateada);
 
     const ph = document.getElementById('ph');
     if (ph) ph.remove();
 
-    if (todos.length > 0) {
-      todos.slice(-8).forEach(m => addMsg(m.rol === 'user' ? 'user' : 'nova', m.contenido));
-    }
+    // Mostrar últimos mensajes
+    todos.slice(-6).forEach(m => addMsg(m.rol === 'user' ? 'user' : 'nova', m.contenido));
 
   } catch (e) {
     console.error('Error init:', e);
-    const ph = document.getElementById('ph');
-    if (ph) ph.remove();
+    document.getElementById('ph')?.remove();
   }
 
   initOrb();
@@ -117,8 +113,8 @@ async function initApp() {
     setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
   }
 
-  // Briefing DESPUÉS de mostrar la pantalla
-  setTimeout(() => briefingAutomatico().catch(console.warn), 800);
+  // Briefing después de mostrar la pantalla
+  setTimeout(() => briefingAutomatico().catch(console.warn), 1000);
 }
 
 initApp();

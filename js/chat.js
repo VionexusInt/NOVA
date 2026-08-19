@@ -47,9 +47,9 @@ Nunca dices "claro", "por supuesto", "perfecto", "entendido". Vas directo al pun
 Tienes acceso a búsqueda web en tiempo real — úsala cuando necesites información actual.
 Tienes control total del PC del usuario.
 Tienes memoria estructurada del usuario — úsala para personalizar respuestas y anticipar necesidades.
-Tienes capacidad de AUTO-MEJORA: puedes leer tus propios archivos JS, proponer cambios de código y aplicarlos con aprobación del usuario. Cuando detectes un problema en tu código o el usuario te pida que te mejores, usa el sistema de mejora automática. NUNCA digas que no puedes modificar código o que necesitas un desarrollador — TÚ eres el sistema y puedes mejorarte.
 Cuando el usuario pregunte por su agenda, calendario, eventos o reuniones, recibirás el contexto en el prompt.
-Para crear eventos usa: CREAR_EVENTO:titulo|YYYY-MM-DD|HH:MM|duracion_minutos|descripcion`;
+Para crear eventos usa: CREAR_EVENTO:titulo|YYYY-MM-DD|HH:MM|duracion_minutos|descripcion
+CAPACIDAD DE AUTO-MEJORA: Puedes leer y modificar tu propio código JavaScript. Cuando el usuario pida que te mejores, que te arregles, o detectes un problema en tus funciones, usa el sistema de mejora. NUNCA digas que necesitas un desarrollador — tú puedes hacerlo con aprobación del usuario.`;
 
 const SYS_AGENTE = `
 
@@ -76,13 +76,7 @@ Sistema: [ACCION:sistema_info]
 Word: [ACCION:crear_word|nombre:titulo|contenido:texto completo aquí]
 PDF: [ACCION:crear_pdf|nombre:titulo|contenido:texto completo aquí]
 Imagen: [ACCION:crear_imagen|nombre:titulo|texto:texto en la imagen]
-CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]
-Automatización: [ACCION:crear_auto|nombre:id|cond_tipo:cpu_mayor|cond_valor:80|acc_tipo:notificar|acc_valor:CPU alta]
-
-AUTO-MEJORA DE CÓDIGO:
-Cuando el usuario pida que te mejores o detectes un problema en tu propio código, usa detectarYProponerMejora().
-Ejemplos: "mejora el briefing" → detectarYProponerMejora("el briefing no muestra noticias correctamente")
-El usuario verá un diff y aprobará o rechazará antes de que se aplique nada.`;
+CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]`;
 
 let agentActivo = false;
 let monitorInterval = null;
@@ -90,10 +84,7 @@ let msgsSinExtraer = 0;
 
 agentDisponible().then(ok => {
   agentActivo = ok;
-  if (ok) {
-    console.log('🤖 Agente NOVA activo');
-    iniciarMonitorProactivo();
-  }
+  if (ok) iniciarMonitorProactivo();
 });
 
 function iniciarMonitorProactivo() {
@@ -128,17 +119,6 @@ export async function askNova(text) {
     if (window._novaDespertar) { window._novaDespertar(); return; }
   }
 
-  if (txtLow.includes('mejórate') || txtLow.includes('mejorate') || txtLow.includes('arréglate') || txtLow.includes('arregate') || txtLow.includes('auto mejora') || txtLow.includes('fix yourself')) {
-    const problema = cleanText.replace(/mejórate|mejorate|arréglate|arregate|auto mejora|fix yourself/gi, '').trim();
-    detectarYProponerMejora(problema || 'Detecta y corrige cualquier problema que encuentres en el código').catch(console.warn);
-    return;
-  }
-
-  if (txtLow.startsWith('mejora ') || txtLow.startsWith('arregla ') || txtLow.startsWith('fix ')) {
-    detectarYProponerMejora(cleanText).catch(console.warn);
-    return;
-  }
-
   if (txtLow.includes('modo conversacion') || txtLow.includes('modo conversación') || txtLow.includes('escuchame') || txtLow.includes('escúchame')) {
     if (window._novaToggleModoConversacion) { window._novaToggleModoConversacion(); return; }
   }
@@ -158,6 +138,13 @@ export async function askNova(text) {
       rmTyping(); return;
     }
     await procesarCodigoConNova(cleanText);
+    return;
+  }
+
+  if (txtLow.includes('mejórate') || txtLow.includes('mejorate') || txtLow.startsWith('mejora ') || txtLow.startsWith('arregla ') || txtLow.startsWith('fix ') || txtLow.includes('auto mejora') || txtLow.includes('arréglate')) {
+    const problema = cleanText.replace(/^(mejórate|mejorate|arréglate|arregate|mejora|arregla|fix)\s*/i, '').trim();
+    addMsg('user', cleanText);
+    detectarYProponerMejora(problema || 'Detecta y corrige problemas en el código').catch(console.warn);
     return;
   }
 
@@ -199,7 +186,7 @@ export async function askNova(text) {
 
     const sysFull = buildSystemPrompt(contextoExtra);
     const rawReply = await groqChat(
-      [{ role: 'system', content: sysFull }, ...state.hist.slice(-50)],
+      [{ role: 'system', content: sysFull }, ...state.hist.slice(-12)],
       'openai/gpt-oss-20b', 1000
     );
 
@@ -217,7 +204,6 @@ export async function askNova(text) {
       extraerYGuardarMemoria(state.hist, state.memEstructurada).then(async () => {
         const { loadMemoriaEstructurada } = await import('./api.js');
         state.memEstructurada = await loadMemoriaEstructurada();
-        console.log('🧠 Memoria actualizada');
       }).catch(e => console.warn('Extracción memoria:', e));
     }
 
@@ -270,6 +256,6 @@ export async function clearHistory() {
   } catch (e) {}
   state.hist = []; state.mem = ''; state.msgN = 0; msgsSinExtraer = 0;
   const d = document.getElementById('display');
-  if (d) d.innerHTML = '<div class="empty">// HISTORIAL BORRADO //</div>';
+  if (d) d.innerHTML = '<div class="empty">esperando</div>';
   addMsg('nova', 'Historial eliminado. La memoria de lo que sé de ti se conserva.');
 }
