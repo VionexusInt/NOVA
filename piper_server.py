@@ -15,31 +15,77 @@ MODELS_DIR = Path(__file__).parent / "voces"
 MODELS_DIR.mkdir(exist_ok=True)
 
 VOCES = {
-    "carlfm": {
-        "nombre": "es_ES-carlfm-high",
-        "url": "https://huggingface.co/friyin/vits-piper-es_ES-carlfm-high/resolve/main",
+    "sharvard": {
+        "nombre": "es_ES-sharvard-medium",
+        "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/sharvard/medium",
+        "lang": "es",
+        "desc": "Espanol de Espana, masculina, clara y profesional",
     },
     "davefx": {
         "nombre": "es_ES-davefx-medium",
         "url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium",
+        "lang": "es",
+        "desc": "Espanol de Espana, masculina, neutra",
+    },
+    "carlfm": {
+        "nombre": "es_ES-carlfm-high",
+        "url": "https://huggingface.co/friyin/vits-piper-es_ES-carlfm-high/resolve/main",
+        "lang": "es",
+        "desc": "Espanol de Espana, grave y lenta",
     },
 }
 
-VOZ_ACTIVA = "carlfm"
+# ============================================================
+# CONFIGURACION DEFINITIVA - VOZ MASCULINA PROFESIONAL
+# ============================================================
 
-LENGTH_SCALE = 1.1
-NOISE_SCALE = 0.5
-NOISE_W = 0.6
+# "sharvard" = es_ES-sharvard-medium
+#   Voz masculina espanola, clara, profesional
+#   NO es femenina, NO es mexicana, NO es grave/lenta
+#
+# "davefx" = alternativa si sharvard no convence
+# "carlfm" = solo si quieres voz de narrador documental
+
+VOZ_ACTIVA = "sharvard"
+
+# PARAMETROS ULTRA-AFINADOS (no robotico, no imperativo):
+# length_scale: 0.88 = ritmo rapido-profesional pero natural
+# noise_scale: 0.48 = expresivo y humano (0.3=robot, 0.6=dramatico)
+# noise_w: 0.45 = cadencia natural con variacion sutil
+# sentence_silence: 0.18 = pausas suaves entre frases
+LENGTH_SCALE = 0.88
+NOISE_SCALE = 0.48
+NOISE_W = 0.45
+SENTENCE_SILENCE = 0.18
+
+# POST-PROCESO: "sutil" o "ninguno"
+#   "sutil" = compresion ligera + normalizacion + eco de sala muy leve
+#   "ninguno" = solo normalizacion de volumen (maxima naturalidad)
+MODO_POSTPROCESO = "sutil"
+
+# ============================================================
+# FILTROS FFmpeg
+# ============================================================
+
+# Sutil: compresion ligera, normalizacion, y un eco de sala muy leve
+# para dar profundidad sin sonar metalico
+FFMPEG_SUTIL = (
+    "acompressor=threshold=-20dB:ratio=2.5:attack=6:release=80,"
+    "aecho=0.25:0.2:35:0.05,"
+    "equalizer=f=350:t=q:w=1:g=1.2,"
+    "equalizer=f=2000:t=q:w=1.2:g=1.5,"
+    "loudnorm=I=-16:TP=-1.5:LRA=10"
+)
+
+# Ninguno: solo compresion y normalizacion, sin efectos
+FFMPEG_NINGUNO = (
+    "acompressor=threshold=-18dB:ratio=2:attack=8:release=100,"
+    "loudnorm=I=-16:TP=-1.5:LRA=12"
+)
+
+FFMPEG_FILTRO = FFMPEG_SUTIL if MODO_POSTPROCESO == "sutil" else FFMPEG_NINGUNO
 
 POST_PROCESADO_ACTIVO = True
-FFMPEG_FILTRO = (
-    "highpass=f=90,"
-    "lowpass=f=9000,"
-    "acompressor=threshold=-18dB:ratio=3:attack=5:release=80,"
-    "aecho=0.6:0.3:20:0.15,"
-    "equalizer=f=250:t=q:w=1:g=-2,"
-    "equalizer=f=3000:t=q:w=1.5:g=2"
-)
 
 _ffmpeg_disponible = None
 
@@ -54,11 +100,10 @@ def comprobar_ffmpeg():
             capture_output=True, check=True, timeout=5
         )
         _ffmpeg_disponible = True
-        print("FFmpeg detectado, post-procesamiento activo.")
+        print("FFmpeg detectado.")
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         _ffmpeg_disponible = False
-        print("FFmpeg no encontrado. El audio sonara sin post-procesar.")
-        print("Instalalo desde https://ffmpeg.org/download.html para el efecto completo.")
+        print("FFmpeg no encontrado. Audio sin post-procesar.")
     return _ffmpeg_disponible
 
 
@@ -69,10 +114,11 @@ def descargar_modelo_si_falta(clave):
     json_path = MODELS_DIR / f"{info['nombre']}.onnx.json"
     if onnx_path.exists() and json_path.exists():
         return onnx_path, json_path
-    print(f"Descargando modelo de voz {info['nombre']} (solo la primera vez)...")
+    print(f"Descargando modelo {info['nombre']}...")
+    print(f"  {info['desc']}")
     urllib.request.urlretrieve(f"{info['url']}/{info['nombre']}.onnx", onnx_path)
     urllib.request.urlretrieve(f"{info['url']}/{info['nombre']}.onnx.json", json_path)
-    print("Modelo descargado.")
+    print("  Listo.")
     return onnx_path, json_path
 
 
@@ -91,7 +137,7 @@ def postprocesar_audio(wav_path):
         )
         return path_out
     except Exception as e:
-        print(f"Error en post-procesamiento, usando audio sin filtrar: {e}")
+        print(f"Error post-procesamiento: {e}")
         return wav_path
 
 
@@ -109,11 +155,12 @@ def sintetizar_wav(texto):
             sys.executable, "-m", "piper",
             "--model", str(onnx_path),
             "--config", str(json_path),
-            "--input", txt_path,
-            "--output_file", wav_path,
-            "--length_scale", str(LENGTH_SCALE),
-            "--noise_scale", str(NOISE_SCALE),
-            "--noise_w", str(NOISE_W),
+            "--input-file", txt_path,
+            "--output-file", wav_path,
+            "--length-scale", str(LENGTH_SCALE),
+            "--noise-scale", str(NOISE_SCALE),
+            "--noise-w-scale", str(NOISE_W),
+            "--sentence-silence", str(SENTENCE_SILENCE),
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -164,15 +211,19 @@ def ping():
 
 @app.route('/voces', methods=['GET'])
 def listar_voces():
-    return jsonify({'voz_activa': VOZ_ACTIVA, 'disponibles': list(VOCES.keys())})
+    return jsonify({
+        'voz_activa': VOZ_ACTIVA,
+        'disponibles': {k: v['desc'] for k, v in VOCES.items()}
+    })
 
 
 if __name__ == '__main__':
-    print("=" * 55)
-    print("NOVA - Servidor de voz (Piper TTS, modo JARVIS)")
-    print(f"Voz activa: {VOCES[VOZ_ACTIVA]['nombre']}")
-    print(f"Cadencia: pausada y grave (length_scale={LENGTH_SCALE})")
+    print("=" * 60)
+    print("NOVA - Servidor de voz (Piper TTS)")
+    print(f"Voz: {VOCES[VOZ_ACTIVA]['nombre']}")
+    print(f"  -> {VOCES[VOZ_ACTIVA]['desc']}")
+    print(f"Velocidad: {LENGTH_SCALE} | Expresion: {NOISE_SCALE} | Cadencia: {NOISE_W}")
+    print(f"Pausas: {SENTENCE_SILENCE}s | Post-proceso: {MODO_POSTPROCESO}")
     comprobar_ffmpeg()
-    print("100% local - sin GPU - sin coste - sin limite")
-    print("=" * 55)
+    print("=" * 60)
     app.run(host='0.0.0.0', port=5000, debug=False)
