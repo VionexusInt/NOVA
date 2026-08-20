@@ -405,6 +405,12 @@ export function setOrb(s) {
     }
     if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.5);
     else setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1500);
+
+  import('./mini_orb.js').then(m => {
+    m.setMiniOrbState(s);
+    if (s !== 'idle') m.setMiniOrbAudio(0.6);
+    else m.setMiniOrbAudio(0);
+  });
 }
 
 export function setTargetLevel(v) {

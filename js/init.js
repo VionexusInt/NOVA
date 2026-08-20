@@ -14,6 +14,8 @@ import { activarModoDespertar } from './wake.js';
 import { toggleMic, initWakeWord } from './mic.js';
 import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
+import { initMiniOrbSystem, setMiniOrbState } from './mini_orb.js';
+import { initMiniOrbSystem, toggleMiniOrbPip } from './mini_orb.js';
 
 function tick() {
   const n = new Date();
@@ -104,6 +106,7 @@ async function initApp() {
   }
 
   initOrb();
+  initMiniOrbSystem();
   initWakeWord();
   initMemoriaStyles();
   initCodeStyles();
@@ -123,3 +126,5 @@ async function initApp() {
 }
 
 initApp();
+
+document.getElementById('pipBtn')?.addEventListener('click', toggleMiniOrbPip);
