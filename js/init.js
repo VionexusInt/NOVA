@@ -15,7 +15,7 @@ import { toggleMic, initWakeWord } from './mic.js';
 import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
 import { initMiniOrbSystem, setMiniOrbState, toggleMiniOrbPip } from './mini_orb.js';
-import { initConfig, saveConfigInput, saveConfigSelect, exportMemory, forgetAll, showLogs, restartNova, resetAllConfig } from './config.js';
+import { initConfig, saveConfigInput, saveConfigSelect, exportMemory, forgetAll, showLogs, restartNova, resetAllConfig, saveAllConfig } from './config.js';
 
 // ═════════════════════════════════════════════════════════════════
 // EXPONER FUNCIONES GLOBALMENTE (para onclick en HTML)
