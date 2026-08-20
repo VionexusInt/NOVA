@@ -64,6 +64,7 @@
       <div class="qa-btn" id="qaCalendar">agenda</div>
       <div class="qa-btn" id="qaMarketing">marketing</div>
       <div class="qa-btn" id="qaMemoria">memoria</div>
+      <div class="qa-btn" id="qaConfig">config</div>
     </div>
 
     <div class="status-mini" id="statusMini">
@@ -98,9 +99,13 @@
   </div>
 
   <!-- INPUT -->
-  <div class="input-bar-wrap">
+    <div class="input-bar-wrap">
     <button class="btn-mic" id="micBtn">●</button>
-    <input class="inp" type="text" id="txtIn" placeholder="dime algo...">
+    <!-- HONEYPOT: absorbe el autocompletado de Chrome -->
+    <input type="text" style="position:absolute;opacity:0;height:0;width:0;pointer-events:none;" tabindex="-1" autocomplete="username" name="fake-user">
+    <input type="password" style="position:absolute;opacity:0;height:0;width:0;pointer-events:none;" tabindex="-1" autocomplete="current-password" name="fake-pass">
+    <!-- INPUT REAL: protegido contra autocompletado -->
+    <input class="inp" type="search" id="txtIn" placeholder="dime algo..." autocomplete="off" autocorrect="off" spellcheck="false" name="nova-chat" readonly onfocus="this.removeAttribute('readonly')">
     <button class="btn-send" id="btnSend">→</button>
   </div>
 
@@ -480,6 +485,11 @@
           </div>
           <div id="cfgLogsContent" style="margin-top:16px;"></div>
         </div>
+      </div>
+
+      <!-- BOTÓN GUARDAR GLOBAL -->
+      <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border-hair);">
+        <button class="action-btn full" id="btnSaveAllConfig" onclick="saveAllConfig()" style="background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.3);color:#00d4ff;">Guardar configuración</button>
       </div>
 
     </div>

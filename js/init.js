@@ -36,6 +36,7 @@ window.forgetAll = forgetAll;
 window.showLogs = showLogs;
 window.restartNova = restartNova;
 window.resetAllConfig = resetAllConfig;
+window.saveAllConfig = saveAllConfig;
 
 // Selector de prioridad para tareas
 window.selectPri = function(el) {
