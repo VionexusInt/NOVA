@@ -226,6 +226,266 @@
   </div>
 </div>
 
+<!-- PANEL: CONFIGURACIÓN -->
+<div class="overlay" id="ov-config">
+  <div class="fp">
+    <div class="fp-header">
+      <div class="fp-title">Configuración de sistema</div>
+      <button class="fp-close" onclick="closePanel('config')">×</button>
+    </div>
+    <div class="fp-body">
+
+      <!-- IDENTIDAD -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Identidad</span>
+        </div>
+        <div class="cfg-body">
+          <div class="field">
+            <div class="label">Nombre</div>
+            <input type="text" class="fi" id="cfgName" placeholder="Cómo te llamo" onchange="saveConfigInput('cfgName','userName')">
+          </div>
+          <div class="field">
+            <div class="label">Empresa / Proyecto</div>
+            <input type="text" class="fi" id="cfgCompany" placeholder="BÁJATE" onchange="saveConfigInput('cfgCompany','userCompany')">
+          </div>
+          <div class="field">
+            <div class="label">Rol / Posición</div>
+            <input type="text" class="fi" id="cfgRole" placeholder="CEO, fundador..." onchange="saveConfigInput('cfgRole','userRole')">
+          </div>
+        </div>
+      </div>
+
+      <!-- VOZ Y AUDIO -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Voz y audio</span>
+        </div>
+        <div class="cfg-body">
+          <div class="field">
+            <div class="label">Voz de NOVA</div>
+            <div class="cfg-voice-row">
+              <select class="fi-sel" id="cfgVoice">
+                <option value="carlfm">NOVA Original — grave, profesional</option>
+                <option value="sharvard">Sharvard — clara, neutra</option>
+                <option value="davefx">DaveFX — suave, neutra</option>
+              </select>
+              <button class="action-btn" id="cfgVoicePreview" title="Escuchar muestra">▶</button>
+            </div>
+          </div>
+          <div class="field">
+            <div class="label">Gravez (pitch) <span class="cfg-val" id="cfgPitchVal">72%</span></div>
+            <input type="range" class="cfg-slider" id="cfgPitch" min="0.5" max="1.0" step="0.01" value="0.72" data-val="cfgPitchVal">
+          </div>
+          <div class="field">
+            <div class="label">Velocidad <span class="cfg-val" id="cfgSpeedVal">1.02x</span></div>
+            <input type="range" class="cfg-slider" id="cfgSpeed" min="0.7" max="1.5" step="0.01" value="1.02" data-val="cfgSpeedVal">
+          </div>
+          <div class="field">
+            <div class="label">Volumen <span class="cfg-val" id="cfgVolVal">100%</span></div>
+            <input type="range" class="cfg-slider" id="cfgVol" min="0" max="1" step="0.01" value="1.0" data-val="cfgVolVal">
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgTTS" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Activar TTS por defecto</span>
+            </label>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgPost" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Post-procesado JARVIS</span>
+            </label>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgUiSounds" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Sonidos de interfaz</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMPORTAMIENTO -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Comportamiento</span>
+        </div>
+        <div class="cfg-body">
+          <div class="field">
+            <div class="label">Palabra de activación</div>
+            <input type="text" class="fi" id="cfgWake" value="ey nova" onchange="saveConfigInput('cfgWake','wakeWord')">
+          </div>
+          <div class="field">
+            <div class="label">Palabra de detención</div>
+            <input type="text" class="fi" id="cfgStop" value="nova para" onchange="saveConfigInput('cfgStop','stopWord')">
+          </div>
+          <div class="field">
+            <div class="label">Modo conversación</div>
+            <select class="fi-sel" id="cfgConv" onchange="saveConfigSelect('cfgConv','convMode')">
+              <option value="command">Por comando</option>
+              <option value="always">Siempre activo</option>
+              <option value="off">Desactivado</option>
+            </select>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgAutoImp" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Auto-mejora proactiva</span>
+            </label>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgShort">
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Respuestas cortas por defecto</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- APARIENCIA -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Apariencia</span>
+        </div>
+        <div class="cfg-body">
+          <div class="field">
+            <div class="label">Intensidad glow <span class="cfg-val" id="cfgGlowVal">50%</span></div>
+            <input type="range" class="cfg-slider" id="cfgGlow" min="0" max="1" step="0.01" value="0.5" data-val="cfgGlowVal">
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgParticles" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Partículas ambientales</span>
+            </label>
+          </div>
+          <div class="field">
+            <div class="label">Tamaño del orb</div>
+            <select class="fi-sel" id="cfgOrbSize" onchange="saveConfigSelect('cfgOrbSize','orbSize')">
+              <option value="compact">Compacto</option>
+              <option value="normal" selected>Normal</option>
+              <option value="large">Grande</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="label">Tema visual</div>
+            <select class="fi-sel" id="cfgTheme" onchange="saveConfigSelect('cfgTheme','theme')">
+              <option value="dark" selected>Oscuro</option>
+              <option value="darker">Más oscuro</option>
+              <option value="contrast">Alto contraste</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- INTEGRACIONES -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Integraciones</span>
+        </div>
+        <div class="cfg-body">
+          <div class="field">
+            <div class="label">API Key Groq</div>
+            <input type="password" class="fi" id="cfgGroq" placeholder="sk-..." onchange="saveConfigInput('cfgGroq','groqKey')">
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgAgent" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Agente de control PC</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- SISTEMA (Desktop) -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Sistema (desktop)</span>
+        </div>
+        <div class="cfg-body">
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgAutoStart">
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Iniciar con Windows</span>
+            </label>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgTray">
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Minimizar a bandeja</span>
+            </label>
+          </div>
+          <div class="field">
+            <div class="label">Hotkey global</div>
+            <input type="text" class="fi" id="cfgHotkey" value="Ctrl+Shift+N" onchange="saveConfigInput('cfgHotkey','globalHotkey')">
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgNotifs" checked>
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Notificaciones de escritorio</span>
+            </label>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="cfg-toggle">
+              <input type="checkbox" id="cfgOffline">
+              <span class="cfg-toggle-track"><span class="cfg-toggle-thumb"></span></span>
+              <span class="cfg-toggle-label">Modo offline (solo TTS local)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- MEMORIA -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Memoria</span>
+        </div>
+        <div class="cfg-body">
+          <div class="cfg-btn-row">
+            <button class="action-btn" onclick="exportMemory()">Exportar memoria</button>
+            <button class="action-btn" style="border-color:rgba(232,112,112,0.2);color:rgba(232,112,112,0.6);" onclick="forgetAll()">Olvidar todo</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AVANZADO -->
+      <div class="cfg-section">
+        <div class="cfg-h" onclick="toggleCfg(this)">
+          <span class="cfg-arrow">▸</span>
+          <span class="cfg-h-title">Avanzado</span>
+        </div>
+        <div class="cfg-body">
+          <div class="cfg-version">NOVA v2.1.0</div>
+          <div class="cfg-btn-row">
+            <button class="action-btn" onclick="showLogs()">Ver logs</button>
+            <button class="action-btn" onclick="restartNova()">Reiniciar</button>
+            <button class="action-btn" style="border-color:rgba(232,112,112,0.2);color:rgba(232,112,112,0.6);" onclick="resetAllConfig()">Resetear</button>
+          </div>
+          <div id="cfgLogsContent" style="margin-top:16px;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <script type="module" src="js/init.js"></script>
 
 <script>

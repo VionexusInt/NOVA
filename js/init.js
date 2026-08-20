@@ -15,6 +15,7 @@ import { toggleMic, initWakeWord } from './mic.js';
 import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
 import { initMiniOrbSystem, setMiniOrbState, toggleMiniOrbPip } from './mini_orb.js';
+import { initConfig, saveConfigInput, saveConfigSelect, exportMemory, forgetAll, showLogs, restartNova, resetAllConfig } from './config.js';
 
 // ═════════════════════════════════════════════════════════════════
 // EXPONER FUNCIONES GLOBALMENTE (para onclick en HTML)
@@ -28,6 +29,13 @@ window.genMarketing = genMarketing;
 window.genBriefing = genBriefing;
 window.initCalendar = initCalendar;
 window.setMkt = setMkt;
+window.saveConfigInput = saveConfigInput;
+window.saveConfigSelect = saveConfigSelect;
+window.exportMemory = exportMemory;
+window.forgetAll = forgetAll;
+window.showLogs = showLogs;
+window.restartNova = restartNova;
+window.resetAllConfig = resetAllConfig;
 
 // Selector de prioridad para tareas
 window.selectPri = function(el) {
@@ -52,7 +60,8 @@ document.getElementById('btnSend')?.addEventListener('click', sendText);
 document.getElementById('txtIn')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendText(); });
 document.getElementById('micBtn')?.addEventListener('click', toggleMic);
 document.getElementById('btnReset')?.addEventListener('click', clearHistory);
-
+document.getElementById('qaConfig')?.addEventListener('click', () => openPanel('config'));
+document.getElementById('ov-config')?.addEventListener('click', e => closeOnBg(e, 'config'));
 document.getElementById('qaTasks')?.addEventListener('click', () => { openPanel('tasks'); renderTasks(); });
 document.getElementById('qaEmail')?.addEventListener('click', () => openPanel('email'));
 document.getElementById('qaBriefing')?.addEventListener('click', () => openPanel('briefing'));
@@ -119,11 +128,20 @@ async function initApp() {
 
   initOrb();
   initMiniOrbSystem();
+  initConfig();
   initWakeWord();
   initMemoriaStyles();
   initCodeStyles();
   initMejoraStyles();
   window._novaDespertar = activarModoDespertar;
+
+  window.toggleCfg = function(el) {
+  const body = el.nextElementSibling;
+  const arrow = el.querySelector('.cfg-arrow');
+  const isOpen = body.style.display === 'block';
+  body.style.display = isOpen ? 'none' : 'block';
+  if (arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+};
 
   const loadingEl = document.getElementById('loading');
   if (loadingEl) {

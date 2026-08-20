@@ -34,7 +34,7 @@ export function closePanel(id) {
 }
 
 export function closeAllPanels() {
-  ['tasks', 'email', 'briefing', 'calendar', 'marketing'].forEach(closePanel);
+  ['tasks', 'email', 'briefing', 'calendar', 'marketing', 'config'].forEach(closePanel);
 }
 
 export function closeOnBg(e, id) {
