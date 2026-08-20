@@ -16,6 +16,25 @@ import { setOrb, initOrb } from './orb.js';
 import { copyTxt } from './helpers.js';
 import { initMiniOrbSystem, setMiniOrbState, toggleMiniOrbPip } from './mini_orb.js';
 
+// ═════════════════════════════════════════════════════════════════
+// EXPONER FUNCIONES GLOBALMENTE (para onclick en HTML)
+// ═════════════════════════════════════════════════════════════════
+window.openPanel = openPanel;
+window.closePanel = closePanel;
+window.closeOnBg = closeOnBg;
+window.addTask = addTask;
+window.genEmail = genEmail;
+window.genMarketing = genMarketing;
+window.genBriefing = genBriefing;
+window.initCalendar = initCalendar;
+window.setMkt = setMkt;
+
+// Selector de prioridad para tareas
+window.selectPri = function(el) {
+  document.querySelectorAll('.task-pri-dot').forEach(d => d.classList.remove('active'));
+  el.classList.add('active');
+};
+
 function tick() {
   const n = new Date();
   const clockEl = document.getElementById('clock');
@@ -41,17 +60,15 @@ document.getElementById('qaCalendar')?.addEventListener('click', () => openPanel
 document.getElementById('qaMarketing')?.addEventListener('click', () => openPanel('marketing'));
 document.getElementById('qaMemoria')?.addEventListener('click', abrirPanelMemoria);
 
+// Click fuera del panel para cerrar
 document.getElementById('ov-tasks')?.addEventListener('click', e => closeOnBg(e, 'tasks'));
 document.getElementById('ov-email')?.addEventListener('click', e => closeOnBg(e, 'email'));
 document.getElementById('ov-briefing')?.addEventListener('click', e => closeOnBg(e, 'briefing'));
 document.getElementById('ov-calendar')?.addEventListener('click', e => closeOnBg(e, 'calendar'));
 document.getElementById('ov-marketing')?.addEventListener('click', e => closeOnBg(e, 'marketing'));
 
-document.querySelectorAll('.fp-close').forEach(btn => {
-  btn.addEventListener('click', () => closePanel(btn.dataset.panel));
-});
-
-document.getElementById('btnAddTask')?.addEventListener('click', addTask);
+// Event listeners de botones dentro de paneles
+document.getElementById('taskAddBtn')?.addEventListener('click', addTask);
 document.getElementById('taskIn')?.addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
 document.getElementById('btnGenEmail')?.addEventListener('click', genEmail);
 document.getElementById('copyBtnEmail')?.addEventListener('click', () => copyTxt('eResult'));
@@ -65,8 +82,6 @@ document.getElementById('copyBtnMarketing')?.addEventListener('click', () => cop
 
 async function initApp() {
   rmTyping();
-
-  // Pintar tareas guardadas desde el arranque, sin esperar a ninguna interacción
   renderTasks();
 
   try {
@@ -83,7 +98,6 @@ async function initApp() {
     state.mem = memory || '';
     state.memEstructurada = memEstructurada || {};
 
-    // Solo los últimos 10 en memoria para evitar 400 en Groq
     state.hist = todos.slice(-10).map(m => ({
       role: m.rol === 'user' ? 'user' : 'assistant',
       content: m.contenido.trim()
@@ -96,7 +110,6 @@ async function initApp() {
     const ph = document.getElementById('ph');
     if (ph) ph.remove();
 
-    // Mostrar últimos mensajes
     todos.slice(-6).forEach(m => addMsg(m.rol === 'user' ? 'user' : 'nova', m.contenido));
 
   } catch (e) {
@@ -119,9 +132,9 @@ async function initApp() {
   }
 
   setTimeout(async () => {
-  const { saludarAlIniciar } = await import('./saludos.js');
-  await saludarAlIniciar();
-}, 3000);
+    const { saludarAlIniciar } = await import('./saludos.js');
+    await saludarAlIniciar();
+  }, 3000);
 }
 
 initApp();

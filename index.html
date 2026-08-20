@@ -106,119 +106,122 @@
 
 </div>
 
-<!-- PANELES -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!--  PANELES HUD LATERAL                                           -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<!-- PANEL: TAREAS -->
 <div class="overlay" id="ov-tasks">
   <div class="fp">
     <div class="fp-header">
       <div class="fp-title">Gestión de tareas</div>
-      <div class="fp-close" data-panel="tasks">cerrar</div>
+      <button class="fp-close" onclick="closePanel('tasks')">×</button>
     </div>
     <div class="fp-body">
-      <div style="display:flex;gap:8px;margin-bottom:18px;">
-        <input class="fi" type="text" id="taskIn" placeholder="nueva tarea" style="flex:1;">
-        <select class="fi-sel" id="taskPri" style="width:auto;">
-          <option value="u">urgente</option>
-          <option value="h">alta</option>
-          <option value="n" selected>normal</option>
-        </select>
-        <button class="action-btn" id="btnAddTask">añadir</button>
+      <div class="task-input-row">
+        <input type="text" class="fi" id="taskIn" placeholder="Nueva tarea..." onkeydown="if(event.key==='Enter')addTask()">
+        <div class="task-pri-dots">
+          <div class="task-pri-dot active" data-p="n" onclick="selectPri(this)" title="Normal"></div>
+          <div class="task-pri-dot" data-p="h" onclick="selectPri(this)" title="Alta"></div>
+          <div class="task-pri-dot" data-p="u" onclick="selectPri(this)" title="Urgente"></div>
+        </div>
+        <button class="action-btn" id="taskAddBtn" onclick="addTask()">+</button>
       </div>
       <div id="tasksList"></div>
     </div>
   </div>
 </div>
 
+<!-- PANEL: EMAIL -->
 <div class="overlay" id="ov-email">
   <div class="fp">
     <div class="fp-header">
       <div class="fp-title">Redactor de emails</div>
-      <div class="fp-close" data-panel="email">cerrar</div>
+      <button class="fp-close" onclick="closePanel('email')">×</button>
     </div>
     <div class="fp-body">
-      <div class="row-fields">
-        <div class="field"><div class="label">Para</div><input class="fi" type="text" id="eTo" placeholder="email@empresa.com"></div>
-        <div class="field"><div class="label">Asunto</div><input class="fi" type="text" id="eSubj" placeholder="asunto del email"></div>
+      <div class="field">
+        <div class="label">Para</div>
+        <input type="text" class="fi" id="eTo" placeholder="email@empresa.com">
+      </div>
+      <div class="field">
+        <div class="label">Asunto</div>
+        <input type="text" class="fi" id="eSubj" placeholder="Asunto del email">
       </div>
       <div class="field">
         <div class="label">Tono</div>
         <select class="fi-sel" id="eTone">
           <option value="profesional">Profesional</option>
           <option value="formal">Formal</option>
-          <option value="cercano">Cercano</option>
-          <option value="urgente">Urgente</option>
-          <option value="disculpa">Disculpa</option>
-          <option value="seguimiento">Seguimiento</option>
-          <option value="propuesta">Propuesta</option>
+          <option value="amigable">Amigable</option>
+          <option value="directo">Directo</option>
+          <option value="persuasivo">Persuasivo</option>
         </select>
       </div>
       <div class="field">
         <div class="label">Mensaje</div>
-        <textarea class="fi-ta" id="eBody" placeholder="describe lo que quieres comunicar..."></textarea>
+        <textarea class="fi-ta" id="eBody" placeholder="Describe lo que quieres comunicar..."></textarea>
       </div>
-      <button class="action-btn full" id="btnGenEmail">generar email</button>
-      <div style="margin-top:18px;position:relative;">
-        <div class="result-box" id="eResult"><span class="result-placeholder">el email aparecerá aquí</span></div>
-        <button class="copy-btn" id="copyBtnEmail">copiar</button>
+      <button class="action-btn full" id="btnGenEmail" onclick="genEmail()">Generar email</button>
+      <div class="result-box" id="eResult" style="margin-top:20px;">
+        <span class="result-placeholder">El email aparecerá aquí...</span>
       </div>
     </div>
   </div>
 </div>
 
-<div class="overlay" id="ov-briefing">
-  <div class="fp" style="max-width:860px;">
+<!-- PANEL: MARKETING -->
+<div class="overlay" id="ov-marketing">
+  <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">Briefing diario</div>
-      <div style="display:flex;gap:12px;align-items:center;">
-        <button class="action-btn" id="btnGenBriefing" style="padding:8px 16px;font-size:8px;">generar</button>
-        <div class="fp-close" data-panel="briefing">cerrar</div>
-      </div>
+      <div class="fp-title">Estrategia de marketing</div>
+      <button class="fp-close" onclick="closePanel('marketing')">×</button>
     </div>
-    <div class="fp-body" id="briefingPanel">
-      <div class="brief-empty">Pulsa <em>generar</em> para obtener tu briefing personalizado.</div>
+    <div class="fp-body">
+      <div class="mkt-chips">
+        <div class="mkt-chip on" data-mode="campaña" onclick="setMkt(this,'campaña')">campaña</div>
+        <div class="mkt-chip" data-mode="copy" onclick="setMkt(this,'copy')">copy</div>
+        <div class="mkt-chip" data-mode="redes" onclick="setMkt(this,'redes')">redes</div>
+        <div class="mkt-chip" data-mode="seo" onclick="setMkt(this,'seo')">seo</div>
+        <div class="mkt-chip" data-mode="embudo" onclick="setMkt(this,'embudo')">embudo</div>
+        <div class="mkt-chip" data-mode="analisis" onclick="setMkt(this,'analisis')">análisis</div>
+      </div>
+      <div class="field">
+        <textarea class="fi-ta" id="mktIn" placeholder="Describe tu negocio, objetivo o contexto..."></textarea>
+      </div>
+      <button class="action-btn full" id="btnGenMarketing" onclick="genMarketing()">Generar estrategia</button>
+      <div class="result-box" id="mktResult" style="margin-top:20px;">
+        <span class="result-placeholder">La estrategia aparecerá aquí...</span>
+      </div>
     </div>
   </div>
 </div>
 
+<!-- PANEL: AGENDA -->
 <div class="overlay" id="ov-calendar">
   <div class="fp">
     <div class="fp-header">
       <div class="fp-title">Agenda — Google Calendar</div>
-      <div class="fp-close" data-panel="calendar">cerrar</div>
+      <button class="fp-close" onclick="closePanel('calendar')">×</button>
     </div>
     <div class="fp-body">
-      <div id="calSetup" style="display:flex;flex-direction:column;gap:14px;align-items:center;padding:30px 0;text-align:center;">
-        <p style="color:var(--text-mid);font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:300;font-style:italic;line-height:1.8;max-width:380px;">Conecta tu Google Calendar para ver tus próximos eventos.</p>
-        <button class="action-btn" id="btnConnectCal">conectar calendar</button>
+      <div id="calSetup">
+        <button class="action-btn full" id="btnConnectCal" onclick="initCalendar()">Conectar calendario</button>
       </div>
       <div id="calEvents" style="display:none;"></div>
     </div>
   </div>
 </div>
 
-<div class="overlay" id="ov-marketing">
+<!-- PANEL: BRIEFING -->
+<div class="overlay" id="ov-briefing">
   <div class="fp">
     <div class="fp-header">
-      <div class="fp-title">Estrategia de marketing</div>
-      <div class="fp-close" data-panel="marketing">cerrar</div>
+      <div class="fp-title">Briefing diario</div>
+      <button class="fp-close" onclick="closePanel('briefing')">×</button>
     </div>
-    <div class="fp-body">
-      <div class="mkt-chips" id="mktChips">
-        <div class="mkt-chip on" data-mode="campaña">campaña</div>
-        <div class="mkt-chip" data-mode="copy">copy</div>
-        <div class="mkt-chip" data-mode="redes">redes</div>
-        <div class="mkt-chip" data-mode="seo">seo</div>
-        <div class="mkt-chip" data-mode="embudo">embudo</div>
-        <div class="mkt-chip" data-mode="analisis">análisis</div>
-      </div>
-      <div class="field">
-        <div class="label">Tu negocio / objetivo</div>
-        <textarea class="fi-ta" id="mktIn" placeholder="describe tu negocio o lo que quieres conseguir..." style="min-height:100px;"></textarea>
-      </div>
-      <button class="action-btn full" id="btnGenMarketing">generar estrategia</button>
-      <div style="margin-top:14px;position:relative;">
-        <div class="result-box" id="mktResult" style="min-height:120px;"><span class="result-placeholder">la estrategia aparecerá aquí</span></div>
-        <button class="copy-btn" id="copyBtnMarketing">copiar</button>
-      </div>
+    <div class="fp-body" id="briefingPanel">
+      <button class="action-btn full" id="btnGenBriefing" onclick="genBriefing()">Generar briefing</button>
     </div>
   </div>
 </div>
