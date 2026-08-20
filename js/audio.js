@@ -59,6 +59,8 @@ export function speakAndWait(txt) {
       currentAudio.onplay = () => {
         window._novaHablando = true;
         setOrb('speaking');
+        // Abortar micrófono del modo conversación para evitar bucle de eco
+        if (window._novaAbortarMicConv) window._novaAbortarMicConv();
         if (waveInt) clearInterval(waveInt);
         waveInt = setInterval(() => {
           setTargetLevel(0.3 + Math.random() * 0.6);
@@ -70,13 +72,14 @@ export function speakAndWait(txt) {
         setOrb('idle');
         setTargetLevel(0);
         URL.revokeObjectURL(_url);
+        // Delay aumentado a 2.5s para que el eco se disipe antes de reactivar el mic
         setTimeout(() => {
           window._novaHablando = false;
           if (window._novaReiniciarMic && window._novaModoConversacion) {
             window._novaReiniciarMic();
           }
           resolve();
-        }, 1200);
+        }, 2500);
       };
       currentAudio.onerror = () => {
         stopAudio(); setOrb('idle'); setTargetLevel(0);

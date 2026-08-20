@@ -15,7 +15,7 @@ const SILENCE_TIMEOUT_CONV = 3000;
 const WAKE_WORDS = ['ey nova', 'hey nova', 'hola nova', 'eh nova'];
 const CONV_WORDS = ['modo conversacion', 'modo conversación', 'escuchame', 'escúchame', 'conversacion continua', 'conversación continua'];
 const WAKE_SEQUENCE = ['despierta', 'wake up', 'actívate', 'activate'];
-const STOP_WORDS = ['para', 'detente', 'stop', 'silencio', 'deja de escuchar'];
+const STOP_WORDS = ['nova para', 'detente', 'stop', 'silencio', 'deja de escuchar'];
 
 function mostrarIndicador(activo) {
   let ind = document.getElementById('conv-indicator');
@@ -26,7 +26,7 @@ function mostrarIndicador(activo) {
     document.body.appendChild(ind);
   }
   if (activo) {
-    ind.textContent = '⬤ MODO CONVERSACIÓN — Di "PARA" para detener';
+    ind.textContent = '⬤ MODO CONVERSACIÓN — Di "NOVA PARA" para detener';
     ind.style.opacity = '1'; ind.style.display = 'block';
   } else {
     ind.style.opacity = '0';
@@ -110,6 +110,7 @@ function activarModoConversacion() {
   modoConversacion = true;
   window._novaModoConversacion = true;
   window._novaReiniciarMic = iniciarEscuchaContinua;
+  window._novaAbortarMicConv = abortarMicModoConv;
   mostrarIndicador(true);
   addMsg('nova', 'Modo conversación activo. Te escucho.');
   setTimeout(() => {
@@ -121,6 +122,7 @@ function desactivarModoConversacion() {
   modoConversacion = false;
   window._novaModoConversacion = false;
   window._novaReiniciarMic = null;
+  window._novaAbortarMicConv = null;
   mostrarIndicador(false);
   isListening = false;
   clearTimeout(silenceTimer);
@@ -132,8 +134,27 @@ function desactivarModoConversacion() {
   startWakeWord();
 }
 
+function abortarMicModoConv() {
+  if (recognition) {
+    try { recognition.abort(); } catch (e) {}
+    isListening = false;
+  }
+  clearTimeout(silenceTimer);
+}
+
 function iniciarEscuchaContinua() {
-  if (window._novaHablando) return;
+  if (window._novaHablando) {
+    // NOVA está hablando, esperar y reintentar
+    const reintentar = () => {
+      if (!window._novaHablando && modoConversacion) {
+        iniciarEscuchaContinua();
+      } else if (modoConversacion) {
+        setTimeout(reintentar, 500);
+      }
+    };
+    setTimeout(reintentar, 500);
+    return;
+  }
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
@@ -152,7 +173,7 @@ function iniciarEscuchaContinua() {
     const micBtn = document.getElementById('micBtn');
     if (micBtn) micBtn.classList.add('listening');
     const txtIn = document.getElementById('txtIn');
-    if (txtIn) txtIn.placeholder = '⬤ Escuchando... (di "PARA" para detener)';
+    if (txtIn) txtIn.placeholder = '⬤ Escuchando... (di "NOVA PARA" para detener)';
   };
 
   recognition.onresult = (event) => {
@@ -193,7 +214,11 @@ function iniciarEscuchaContinua() {
   };
 
   recognition.onend = () => {
-    if (modoConversacion && !window._novaHablando) {
+    if (modoConversacion) {
+      if (window._novaHablando) {
+        // NOVA está hablando, no reiniciar todavía. El audio.js reactivará el mic al terminar.
+        return;
+      }
       setTimeout(() => {
         if (modoConversacion && !window._novaHablando) {
           try { recognition?.start(); } catch (e) { iniciarEscuchaContinua(); }
