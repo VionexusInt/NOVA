@@ -131,28 +131,44 @@ export async function loadCalEvents() {
   try {
     eventos = await getEventos(7);
   } catch (e) {
-    evEl.innerHTML = `<div class="empty">Error cargando eventos: ${esc(e.message)}</div>`;
+    evEl.innerHTML = `<div class="empty" style="padding:40px 0; text-align:center; color:var(--text-ghost);">Error cargando eventos</div>`;
     return;
   }
 
   if (eventos.length === 0) {
-    evEl.innerHTML = '<div class="empty">Sin eventos los próximos 7 días</div>';
+    evEl.innerHTML = '<div class="empty" style="padding:40px 0; text-align:center; color:var(--text-ghost); font-family:Fraunces,serif; font-style:italic;">Sin eventos los próximos 7 días</div>';
     return;
   }
 
-  evEl.innerHTML = eventos.map(e => {
+  // Agrupar por fecha
+  const grupos = {};
+  eventos.forEach(e => {
     const s = e.start.dateTime ? new Date(e.start.dateTime) : new Date(e.start.date);
-    const ts = e.start.dateTime
-      ? s.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-      : s.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-    return `<div class="cal-ev">
-      <div class="cal-time">${esc(ts)}</div>
-      <div>
-        <div class="cal-name">${esc(e.summary || 'Sin título')}</div>
-        ${e.location ? `<div class="cal-desc">📍 ${esc(e.location)}</div>` : ''}
-        ${e.description ? `<div class="cal-desc">${esc(e.description.substring(0, 80))}${e.description.length > 80 ? '...' : ''}</div>` : ''}
-      </div>
-    </div>`;
+    const fechaKey = s.toDateString();
+    if (!grupos[fechaKey]) grupos[fechaKey] = { fecha: s, eventos: [] };
+    grupos[fechaKey].eventos.push(e);
+  });
+
+  evEl.innerHTML = Object.values(grupos).map(g => {
+    const hoy = new Date().toDateString() === g.fecha.toDateString();
+    const manana = new Date(Date.now() + 86400000).toDateString() === g.fecha.toDateString();
+    const label = hoy ? 'HOY' : manana ? 'MAÑANA' : g.fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+    
+    return `<div class="cal-date-header">${label}</div>` +
+      g.eventos.map(e => {
+        const s = e.start.dateTime ? new Date(e.start.dateTime) : new Date(e.start.date);
+        const ts = e.start.dateTime
+          ? s.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          : 'TODO EL DÍA';
+        return `<div class="cal-ev">
+          <div class="cal-dot"></div>
+          <div class="cal-time">${esc(ts)}</div>
+          <div>
+            <div class="cal-name">${esc(e.summary || 'Sin título')}</div>
+            ${e.location ? `<div class="cal-desc">📍 ${esc(e.location)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
   }).join('');
 }
 
