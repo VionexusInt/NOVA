@@ -70,7 +70,6 @@ propuestas_pendientes = {}
 BACKUPS_DIR = NOVA_ROOT / '_backups_automejora'
 BACKUPS_DIR.mkdir(exist_ok=True)
 
-
 def _resolver_ruta_archivo(archivo):
     if not archivo or not isinstance(archivo, str):
         return None
@@ -86,7 +85,6 @@ def _resolver_ruta_archivo(archivo):
         return None
     return ruta
 
-
 def _generar_diff(original, nuevo, archivo):
     try:
         orig_lines = original.splitlines(keepends=True)
@@ -99,7 +97,6 @@ def _generar_diff(original, nuevo, archivo):
         return ''.join(diff)
     except Exception:
         return ''
-
 
 def _crear_backup(ruta_archivo, archivo_nombre):
     try:
@@ -117,7 +114,6 @@ def _crear_backup(ruta_archivo, archivo_nombre):
     except Exception as e:
         return None
 
-
 @app.route('/api/mejora/leer', methods=['POST'])
 def mejora_leer():
     try:
@@ -132,7 +128,6 @@ def mejora_leer():
         return jsonify({'ok': True, 'archivo': archivo, 'contenido': contenido})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-
 
 @app.route('/api/mejora/proponer', methods=['POST'])
 def mejora_proponer():
@@ -174,7 +169,6 @@ def mejora_proponer():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-
 @app.route('/api/mejora/aprobar', methods=['POST'])
 def mejora_aprobar():
     try:
@@ -203,7 +197,6 @@ def mejora_aprobar():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-
 @app.route('/api/mejora/rechazar', methods=['POST'])
 def mejora_rechazar():
     try:
@@ -216,7 +209,6 @@ def mejora_rechazar():
         return jsonify({'ok': True, 'mensaje': 'Propuesta no encontrada'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-
 
 @app.route('/api/mejora/revertir', methods=['POST'])
 def mejora_revertir():
@@ -244,7 +236,6 @@ def mejora_revertir():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-
 @app.route('/api/mejora/lista_archivos', methods=['GET'])
 def mejora_lista_archivos():
     existentes = []
@@ -263,7 +254,6 @@ def mejora_lista_archivos():
         'total_backups': len(backups),
         'propuestas_pendientes': len(propuestas_pendientes),
     })
-
 
 def get_system_info():
     try:
@@ -846,6 +836,160 @@ def accion():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+@app.route('/api/vision', methods=['POST'])
+def vision_proxy():
+    try:
+        data = request.get_json() or {}
+        nvidia_key = data.get('key', '')
+        messages = data.get('messages', [])
+        model = data.get('model', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
+        max_tokens = data.get('max_tokens', 1024)
+        reasoning_budget = data.get('reasoning_budget', 512)
+
+        payload = {'model': model, 'max_tokens': max_tokens, 'temperature': 0.4, 'messages': messages}
+        if reasoning_budget:
+            payload['reasoning_budget'] = reasoning_budget
+
+        import requests as req_lib
+        r = req_lib.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {nvidia_key}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json=payload,
+            timeout=30
+        )
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+CODE_EXTENSIONS = {
+    '.js', '.jsx', '.ts', '.tsx', '.swift', '.m', '.mm', '.h',
+    '.kt', '.kts', '.java', '.dart', '.py', '.json', '.yaml', '.yml',
+    '.plist', '.xcconfig', '.gradle', '.md', '.css', '.scss', '.html',
+    '.vue', '.rb', '.go', '.rs', '.c', '.cpp', '.cs'
+}
+
+IGNORE_DIRS_PROYECTO = {
+    'node_modules', '.git', '.expo', '.next', 'dist', 'build', 'Pods',
+    'DerivedData', '.build', 'Carthage', '.dart_tool', '.gradle', '.idea',
+    '.vscode', '__pycache__', '.venv', 'venv', 'coverage', '.cache',
+    'xcuserdata', 'Vendor', 'vendor', '.xcworkspace'
+}
+
+IGNORE_FILES_PROYECTO = {
+    'package-lock.json', 'yarn.lock', 'Podfile.lock', 'Gemfile.lock',
+    'pubspec.lock', '.DS_Store'
+}
+
+MAX_ARCHIVOS_ESCANEO = 400
+MAX_TAMANO_LECTURA_PROYECTO = 500_000
+
+def _validar_ruta_proyecto(proyecto_root, ruta_relativa=None):
+    try:
+        root = Path(proyecto_root).resolve()
+        if not root.exists() or not root.is_dir():
+            return None, None, f'La ruta del proyecto no existe o no es una carpeta: {proyecto_root}'
+        if ruta_relativa:
+            ruta = (root / ruta_relativa).resolve()
+            try:
+                ruta.relative_to(root)
+            except ValueError:
+                return None, None, 'Ruta fuera del proyecto no permitida.'
+            return root, ruta, None
+        return root, None, None
+    except Exception as e:
+        return None, None, str(e)
+
+@app.route('/api/proyecto/escanear', methods=['POST'])
+def proyecto_escanear():
+    try:
+        data = request.get_json() or {}
+        proyecto_root = data.get('ruta', '')
+        root, _, err = _validar_ruta_proyecto(proyecto_root)
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+
+        archivos = []
+        for p in root.rglob('*'):
+            if len(archivos) >= MAX_ARCHIVOS_ESCANEO:
+                break
+            if p.is_dir():
+                continue
+            try:
+                partes = p.relative_to(root).parts
+            except ValueError:
+                continue
+            if any(part in IGNORE_DIRS_PROYECTO for part in partes):
+                continue
+            if p.name in IGNORE_FILES_PROYECTO:
+                continue
+            if p.suffix.lower() not in CODE_EXTENSIONS:
+                continue
+            try:
+                tam = p.stat().st_size
+            except Exception:
+                tam = 0
+            archivos.append({
+                'ruta': str(p.relative_to(root)).replace('\\', '/'),
+                'tamano': tam,
+            })
+
+        return jsonify({'ok': True, 'raiz': str(root), 'total': len(archivos), 'archivos': archivos})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/proyecto/leer', methods=['POST'])
+def proyecto_leer():
+    try:
+        data = request.get_json() or {}
+        proyecto_root = data.get('ruta_proyecto', '')
+        archivo = data.get('archivo', '')
+        root, ruta, err = _validar_ruta_proyecto(proyecto_root, archivo)
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+        if not ruta.exists() or not ruta.is_file():
+            return jsonify({'ok': False, 'error': f'Archivo no encontrado: {archivo}'}), 404
+
+        tam = ruta.stat().st_size
+        if tam > MAX_TAMANO_LECTURA_PROYECTO:
+            return jsonify({'ok': False, 'error': f'Archivo demasiado grande ({tam} bytes).'}), 400
+
+        try:
+            contenido = ruta.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            return jsonify({'ok': False, 'error': 'El archivo no es texto UTF-8 (¿binario?).'}), 400
+
+        return jsonify({'ok': True, 'archivo': archivo, 'contenido': contenido})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/nvidia_chat', methods=['POST'])
+def nvidia_chat_proxy():
+    try:
+        data = request.get_json() or {}
+        nvidia_key = data.get('key', '')
+        messages = data.get('messages', [])
+        model = data.get('model', 'qwen/qwen3-coder-480b-a35b-instruct')
+        max_tokens = data.get('max_tokens', 2048)
+
+        import requests as req_lib
+        r = req_lib.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {nvidia_key}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json={'model': model, 'max_tokens': max_tokens, 'temperature': 0.3, 'messages': messages},
+            timeout=45
+        )
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
     print(f"📁 Proyecto en: {NOVA_ROOT}")
@@ -863,6 +1007,8 @@ if __name__ == '__main__':
     print(" • Automatizaciones por condición")
     print(" • Alertas proactivas")
     print(" • Proxy de noticias (Google News RSS)")
+    print(" • Proxy de visión y código NVIDIA")
+    print(" • Análisis de proyectos externos (solo lectura)")
     print(" • 🧬 AUTO-MEJORA con backups automáticos")
     print("━" * 50)
     app.run(host='127.0.0.1', port=4000, threaded=True)

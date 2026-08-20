@@ -5,15 +5,29 @@ export function saveTasks() {
   localStorage.setItem('nova_tasks', JSON.stringify(state.tasks));
 }
 
-export function addTask() {
-  const i = document.getElementById('taskIn');
-  const t = i.value.trim();
-  if (!t) return;
-  const p = document.getElementById('taskPri').value;
-  state.tasks.unshift({ id: Date.now(), text: t, p, done: false });
-  i.value = '';
+// Núcleo puro — no depende de que exista ningún elemento del DOM.
+// Así NOVA puede añadir tareas por voz/chat aunque el panel esté cerrado.
+export function agregarTarea(texto, prioridad = 'n') {
+  const t = (texto || '').trim();
+  if (!t) return null;
+  const p = ['u', 'h', 'n'].includes(prioridad) ? prioridad : 'n';
+  const tarea = { id: Date.now(), text: t, p, done: false };
+  state.tasks.unshift(tarea);
   saveTasks();
   renderTasks();
+  return tarea;
+}
+
+// Wrapper de UI — lee el input del panel y delega en agregarTarea()
+export function addTask() {
+  const i = document.getElementById('taskIn');
+  if (!i) return;
+  const t = i.value.trim();
+  if (!t) return;
+  const pSel = document.getElementById('taskPri');
+  const p = pSel ? pSel.value : 'n';
+  agregarTarea(t, p);
+  i.value = '';
 }
 
 export function toggleTask(id) {
@@ -40,7 +54,6 @@ export function renderTasks() {
       <div class="task-del" data-id="${t.id}">×</div>
     </div>`).join('');
 
-  // Eventos para check y delete
   l.querySelectorAll('.task-chk').forEach(el => {
     el.addEventListener('click', () => toggleTask(Number(el.dataset.id)));
   });

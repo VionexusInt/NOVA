@@ -36,73 +36,42 @@ VOCES = {
     },
 }
 
-# ============================================================
-# CONFIGURACION JARVIS - Replica exacta del audio de muestra
-# ============================================================
-# Analisis del audio de muestra:
-# - Pitch: ~147 Hz (voz muy grave)
-# - Formantes: F1=215Hz, F2=334Hz, F3=452Hz (muy bajos)
-# - Energia: 91.6% por debajo de 500 Hz (muy grave)
-# - Eco metalico visible
-# - Compresion fuerte
-
 VOZ_ACTIVA = "carlfm"
 
-# Sintesis: parametros para voz grave y lenta
-LENGTH_SCALE = 0.95
-NOISE_SCALE = 0.5
-NOISE_W = 0.45
-SENTENCE_SILENCE = 0.2
+# ============================================================
+# PROSODIA - Estos parametros SI funcionan con el CLI de Piper
+# ============================================================
 
-# PITCH SHIFTING: bajar la voz para que suene mas grave
-# Factor 0.72 = baja el pitch un 28% (de ~200Hz a ~144Hz)
-# Ajusta esto si quieres mas o menos grave:
-#   0.65 = muy grave (tipo Darth Vader)
-#   0.72 = grave (tipo JARVIS) <-- RECOMENDADO
-#   0.80 = grave moderado
-#   1.0 = sin cambio
+LENGTH_SCALE = 1.02
+NOISE_SCALE = 0.62
+NOISE_W = 0.72
+SENTENCE_SILENCE = 0.35
+
+# ============================================================
+# PITCH SHIFTING - Factor para bajar la voz (efecto JARVIS grave)
+# ============================================================
+# 0.72 = grave tipo JARVIS (baja 28% el pitch)
+# 0.65 = muy grave (Darth Vader)
+# 0.80 = grave moderado
+# 1.0 = sin cambio
+
 PITCH_FACTOR = 0.72
 
 # ============================================================
-# POST-PROCESAMIENTO: Replica exacta del perfil de frecuencias
+# POST-PROCESAMIENTO: EFECTO JARVIS + CONFORTABLE
 # ============================================================
-# Orden de operaciones CRITICO:
-# 1. asetrate = cambia el pitch (baja la voz)
-# 2. atempo = compensa la velocidad para que no suene lenta
-# 3. highpass = elimina sub-graves
-# 4. lowpass = corta agudos (el original corta en ~900 Hz)
-# 5. equalizer = boost masivo en graves (200-500 Hz)
-# 6. aecho = eco metalico
-# 7. acompressor = compresion fuerte
-# 8. loudnorm = volumen uniforme
 
 FFMPEG_JARVIS = (
     "asetrate=22050*" + str(PITCH_FACTOR) + ","
-    "atempo=" + str(1.0/PITCH_FACTOR) + ","
-    "highpass=f=60,"
-    "lowpass=f=900,"
-    "equalizer=f=100:t=q:w=2:g=8,"
-    "equalizer=f=200:t=q:w=1.5:g=10,"
-    "equalizer=f=300:t=q:w=1:g=8,"
-    "equalizer=f=400:t=q:w=1:g=6,"
-    "equalizer=f=500:t=q:w=1:g=4,"
-    "equalizer=f=700:t=q:w=1:g=-2,"
-    "equalizer=f=1000:t=q:w=1:g=-8,"
-    "aecho=0.5:0.4:15:0.2,"
-    "acompressor=threshold=-20dB:ratio=8:attack=1:release=30,"
-    "loudnorm=I=-14:TP=-1:LRA=4"
+    "atempo=" + str(round(1.0 / PITCH_FACTOR, 2)) + ","
+    "highpass=f=75,"
+    "equalizer=f=180:t=q:w=1.1:g=1.8,"
+    "equalizer=f=2800:t=q:w=1.4:g=1.5,"
+    "equalizer=f=6500:t=q:w=1:g=-1.2,"
+    "acompressor=threshold=-19dB:ratio=2.3:attack=12:release=140,"
+    "loudnorm=I=-16:TP=-1.5:LRA=8"
 )
 
-# Alternativa sin efecto JARVIS:
-FFMPEG_NATURAL = (
-    "acompressor=threshold=-20dB:ratio=2:attack=8:release=100,"
-    "loudnorm=I=-15:TP=-1:LRA=13"
-)
-
-# Cambia esto: "jarvis" o "natural"
-MODO_AUDIO = "jarvis"
-
-FFMPEG_FILTRO = FFMPEG_JARVIS if MODO_AUDIO == "jarvis" else FFMPEG_NATURAL
 POST_PROCESADO_ACTIVO = True
 
 _ffmpeg_disponible = None
@@ -178,7 +147,7 @@ def postprocesar_audio(wav_path):
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", wav_path,
-                "-af", FFMPEG_FILTRO,
+                "-af", FFMPEG_JARVIS,
                 path_out
             ],
             capture_output=True, check=True, timeout=15
@@ -194,14 +163,15 @@ def sintetizar_wav(texto):
     texto_procesado = preparar_texto_prosodia(texto)
     if not texto_procesado:
         raise ValueError("Texto vacio despues de limpiar")
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f_in:
         f_in.write(texto_procesado)
         txt_path = f_in.name
-    
+
     wav_path = txt_path.replace('.txt', '.wav')
-    
+
     try:
+        # USAR EL CLI DE PIPER - aqui SI funcionan length_scale, noise_scale, noise_w
         cmd = [
             sys.executable, "-m", "piper",
             "--model", str(onnx_path),
@@ -213,19 +183,19 @@ def sintetizar_wav(texto):
             "--noise-w-scale", str(NOISE_W),
             "--sentence-silence", str(SENTENCE_SILENCE),
         ]
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
+
         if result.returncode != 0:
             raise RuntimeError(f"Piper error: {result.stderr}")
-        
+
         wav_path_final = postprocesar_audio(wav_path)
-        
+
         with open(wav_path_final, 'rb') as f:
             audio_bytes = f.read()
-        
+
         return io.BytesIO(audio_bytes)
-        
+
     finally:
         for p in (txt_path, wav_path):
             try:
@@ -262,7 +232,6 @@ def ping():
         'ok': True,
         'voz': VOCES[VOZ_ACTIVA]['nombre'],
         'postprocesado': POST_PROCESADO_ACTIVO and comprobar_ffmpeg(),
-        'modo_audio': MODO_AUDIO,
     })
 
 
@@ -281,7 +250,7 @@ if __name__ == '__main__':
     print(f"  -> {VOCES[VOZ_ACTIVA]['desc']}")
     print(f"Pitch shift: {PITCH_FACTOR} ({int((1-PITCH_FACTOR)*100)}% mas grave)")
     print(f"Ritmo: {LENGTH_SCALE} | Expresion: {NOISE_SCALE} | Cadencia: {NOISE_W}")
-    print(f"Pausas: {SENTENCE_SILENCE}s | Modo: {MODO_AUDIO.upper()}")
+    print(f"Pausas: {SENTENCE_SILENCE}s")
     comprobar_ffmpeg()
     print("=" * 60)
     app.run(host='0.0.0.0', port=5000, debug=False)

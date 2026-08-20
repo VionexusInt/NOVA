@@ -83,7 +83,7 @@ export async function setMemoria(categoria, clave, valor, confianza = 3) {
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates,return=minimal'
     };
-    await fetch(SUPA_URL + '/rest/v1/memoria_estructurada', {
+    const r = await fetch(SUPA_URL + '/rest/v1/memoria_estructurada?on_conflict=categoria,clave', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -93,6 +93,9 @@ export async function setMemoria(categoria, clave, valor, confianza = 3) {
         actualizado: new Date().toISOString()
       })
     });
+    if (!r.ok && r.status !== 409) {
+      console.warn('setMemoria: respuesta no ok', r.status);
+    }
   } catch (e) { console.warn('setMemoria:', e); }
 }
 

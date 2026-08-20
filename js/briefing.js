@@ -151,10 +151,12 @@ async function seccionNoticias(memEst) {
   
   if (!titulos || titulos.trim() === '') {
     console.warn('⚠️ No se obtuvieron noticias del backend');
-    return 'No hay noticias disponibles en este momento.';
+    return { resumen: 'No hay noticias disponibles en este momento.', titulosLista: [] };
   }
   
   console.log('✅ Títulos obtenidos:', titulos.substring(0, 100) + '...');
+
+  const titulosLista = titulos.split(' · ').map(t => t.trim()).filter(t => t.length > 5);
   
   const mem = state.memEstructurada || {};
   const intereses = getInteresesUsuario(mem);
@@ -179,31 +181,41 @@ async function seccionNoticias(memEst) {
     }
   } catch (e) { 
     console.warn('⚠️ Error al resumir noticias con IA:', e);
-    const titulosCortos = titulos.split(' · ').slice(0, 3).join('. ');
+    const titulosCortos = titulosLista.slice(0, 3).join('. ');
     resumen = `En las noticias de hoy: ${titulosCortos}.`;
   }
   
-  return resumen;
+  return { resumen, titulosLista };
 }
 
 function getCiudad(memEst, memTexto) {
   const mem = state.memEstructurada || {};
-  const dato = mem.dato || {};
-  const persona = mem.persona || {};
-  const preferencia = mem.preferencia || {};
-  for (const v of [...Object.values(dato), ...Object.values(persona), ...Object.values(preferencia)]) {
-    const val = (v.valor || '').toLowerCase();
-    if (val.includes('elche')) return 'Elche';
-    if (val.includes('alicante')) return 'Alicante';
-    if (val.includes('elx')) return 'Elche';
+
+  // 1. Prioridad máxima: un campo cuya CLAVE hable explícitamente de ciudad/residencia
+  for (const cat of Object.values(mem)) {
+    for (const [clave, v] of Object.entries(cat)) {
+      const k = (clave || '').toLowerCase();
+      if (k.includes('ciudad') || k.includes('ubicac') || k.includes('resid') || k.includes('locali')) {
+        const val = (v.valor || '').toLowerCase();
+        if (val.includes('elche') || val.includes('elx')) return 'Elche';
+        if (val.includes('alicante')) return 'Alicante';
+        if (val.includes('madrid')) return 'Madrid';
+        if (val.includes('barcelona')) return 'Barcelona';
+        if (val.includes('valencia')) return 'Valencia';
+      }
+    }
   }
-  const ctx = (memEst + ' ' + memTexto).toLowerCase();
-  if (ctx.includes('elche')) return 'Elche';
-  if (ctx.includes('alicante')) return 'Alicante';
-  if (ctx.includes('elx')) return 'Elche';
-  if (ctx.includes('madrid')) return 'Madrid';
-  if (ctx.includes('barcelona')) return 'Barcelona';
-  if (ctx.includes('valencia')) return 'Valencia';
+
+  // 2. Buscar 'elche' explícitamente en cualquier valor de memoria — nunca falso positivo
+  for (const cat of Object.values(mem)) {
+    for (const v of Object.values(cat)) {
+      const val = (v.valor || '').toLowerCase();
+      if (val.includes('elche') || val.includes('elx')) return 'Elche';
+      if (val.includes('alicante')) return 'Alicante';
+    }
+  }
+
+  // 3. Por defecto SIEMPRE Elche — nunca Madrid por una mención suelta sin relación con residencia
   return 'Elche';
 }
 
@@ -235,7 +247,7 @@ export async function briefingAutomatico() {
   
   console.log('⏳ Obteniendo tareas, calendario, clima y noticias en paralelo...');
   
-  const [tareasTxt, calTxt, climaTxt, noticiasTxt] = await Promise.allSettled([
+  const [tareasTxt, calTxt, climaTxt, noticiasRes] = await Promise.allSettled([
     tareas.length > 0 ? seccionTareas(tareas, urgentes) : Promise.resolve(null),
     eventosHoy.length > 0 ? seccionCalendario(eventosHoy) : Promise.resolve(null),
     seccionClima(ciudad),
@@ -247,21 +259,96 @@ export async function briefingAutomatico() {
     tareas: tareasTxt.status,
     calendario: calTxt.status,
     clima: climaTxt.status,
-    noticias: noticiasTxt.status
+    noticias: noticiasRes.status
   });
   
   const get = r => r.status === 'fulfilled' ? r.value : null;
-  
-  if (get(tareasTxt)) await decir(get(tareasTxt));
+
+  const tareasTexto = get(tareasTxt);
+  if (tareasTexto) {
+    let tarjetasModule = null;
+    try {
+      const timeoutGlobal = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout global de tarjetas (5s)')), 5000)
+      );
+
+      const secuenciaTarjetas = (async () => {
+        tarjetasModule = await import('./tarjetasTareas.js');
+        await tarjetasModule.mostrarTarjetasTareas(tareas.length);
+
+        for (const t of tareas.slice(0, 6)) {
+          tarjetasModule.anadirTarjetaTarea(t.text, t.p);
+          await new Promise(r => setTimeout(r, 280));
+        }
+      })();
+
+      await Promise.race([secuenciaTarjetas, timeoutGlobal]);
+    } catch (e) {
+      console.warn('⚠️ No se pudieron mostrar las tarjetas de tareas (se sigue sin ellas):', e);
+      tarjetasModule = null;
+    }
+
+    await decir(tareasTexto);
+
+    if (tarjetasModule) {
+      try { tarjetasModule.ocultarTarjetasTareas(); } catch (e) {}
+    }
+  }
+
   if (get(calTxt)) await decir(get(calTxt));
   if (get(climaTxt)) await decir(get(climaTxt));
   
-  const noticias = get(noticiasTxt);
-  if (noticias && noticias.trim() !== '') {
+  const noticiasData = get(noticiasRes);
+  if (noticiasData && noticiasData.resumen && noticiasData.resumen.trim() !== '') {
     console.log('📰 Diciendo noticias...');
-    await decir(noticias);
+
+    // El mapa es decorativo — si falla por cualquier motivo, NUNCA debe
+    // silenciar el resto del briefing. Todo su ciclo va protegido aparte.
+    let mapaModule = null;
+    try {
+      const timeoutGlobal = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout global del mapa (8s)')), 8000)
+      );
+
+      const secuenciaMapa = (async () => {
+        mapaModule = await import('./mapaElche.js');
+        await mapaModule.mostrarMapaNoticias();
+        await new Promise(r => setTimeout(r, 900));
+
+        const lista = noticiasData.titulosLista.slice(0, 6);
+        for (const titulo of lista) {
+          mapaModule.marcarNoticiaEnMapa(titulo);
+          await new Promise(r => setTimeout(r, 350));
+        }
+      })();
+
+      await Promise.race([secuenciaMapa, timeoutGlobal]);
+    } catch (e) {
+      console.warn('⚠️ No se pudo mostrar el mapa de noticias (se sigue sin él):', e);
+      mapaModule = null;
+    }
+
+    await decir(noticiasData.resumen);
+
+    if (mapaModule) {
+      try { mapaModule.ocultarMapaNoticias(); } catch (e) {}
+    }
   } else {
     console.warn('⚠️ No hay noticias para decir (vacías o null)');
+  }
+
+  // Check-in de socio — BajateApp. Nunca debe bloquear ni fallar el resto del briefing.
+  try {
+    const timeoutGlobal = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout check-in socio (6s)')), 6000)
+    );
+    const secuenciaSocio = (async () => {
+      const { checkInSocio } = await import('./bajateapp.js');
+      await checkInSocio();
+    })();
+    await Promise.race([secuenciaSocio, timeoutGlobal]);
+  } catch (e) {
+    console.warn('⚠️ Check-in de socio omitido:', e);
   }
   
   const partes = [];
@@ -296,7 +383,7 @@ export async function genBriefing() {
   if (await calendarDisponible()) {
     try { eventosHoy = await getEventosHoy(); } catch (e) {}
   }
-  const [estado, tareasTxt, calTxt, climaTxt, noticiasTxt] = await Promise.allSettled([
+  const [estado, tareasTxt, calTxt, climaTxt, noticiasRes] = await Promise.allSettled([
     seccionEstado(momento, memEst, memTexto),
     tareas.length > 0 ? seccionTareas(tareas, urgentes) : Promise.resolve(null),
     eventosHoy.length > 0 ? seccionCalendario(eventosHoy) : Promise.resolve(null),
@@ -304,6 +391,7 @@ export async function genBriefing() {
     seccionNoticias(memEst)
   ]);
   const get = r => r.status === 'fulfilled' ? r.value : null;
+  const noticiasData = get(noticiasRes);
   if (panel) {
     panel.innerHTML = buildPanelHTML({
       momento,
@@ -316,7 +404,7 @@ export async function genBriefing() {
       nUrgentes: urgentes.length,
       calendario: get(calTxt),
       clima: get(climaTxt),
-      noticias: get(noticiasTxt),
+      noticias: noticiasData ? noticiasData.resumen : null,
       eventosHoy,
       urgentes
     });

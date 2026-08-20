@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { loadMsgs, loadMem, loadMemoriaEstructurada, formatearMemoria } from './api.js';
 import { addMsg, sendText, clearHistory, rmTyping } from './chat.js';
 import { openPanel, closePanel, closeOnBg } from './paneles.js';
-import { addTask } from './tareas.js';
+import { addTask, renderTasks } from './tareas.js';
 import { genEmail } from './email.js';
 import { genBriefing, briefingAutomatico } from './briefing.js';
 import { initCalendar } from './calendar.js';
@@ -33,7 +33,7 @@ document.getElementById('txtIn')?.addEventListener('keydown', e => { if (e.key =
 document.getElementById('micBtn')?.addEventListener('click', toggleMic);
 document.getElementById('btnReset')?.addEventListener('click', clearHistory);
 
-document.getElementById('qaTasks')?.addEventListener('click', () => openPanel('tasks'));
+document.getElementById('qaTasks')?.addEventListener('click', () => { openPanel('tasks'); renderTasks(); });
 document.getElementById('qaEmail')?.addEventListener('click', () => openPanel('email'));
 document.getElementById('qaBriefing')?.addEventListener('click', () => openPanel('briefing'));
 document.getElementById('qaCalendar')?.addEventListener('click', () => openPanel('calendar'));
@@ -64,6 +64,9 @@ document.getElementById('copyBtnMarketing')?.addEventListener('click', () => cop
 
 async function initApp() {
   rmTyping();
+
+  // Pintar tareas guardadas desde el arranque, sin esperar a ninguna interacción
+  renderTasks();
 
   try {
     const [todosRaw, memory, memEstructurada] = await Promise.all([

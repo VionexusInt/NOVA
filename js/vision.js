@@ -5,7 +5,7 @@ import { state } from './state.js';
 
 const NVIDIA_KEY = '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';
 const NVIDIA_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
-const VISION_MODEL = 'meta/llama-4-maverick-17b-128e-instruct';
+const VISION_MODEL = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
 
 let stream = null;
 let videoEl = null;
@@ -84,7 +84,7 @@ async function analizarConNvidia(base64Image, prompt) {
   const r = await fetch('http://localhost:4000/api/vision', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: NVIDIA_KEY, model: VISION_MODEL, messages })
+    body: JSON.stringify({ key: NVIDIA_KEY, model: VISION_MODEL, messages, reasoning_budget: 512, max_tokens: 1024 })
   });
 
   if (!r.ok) {

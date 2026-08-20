@@ -10,6 +10,7 @@ const CATEGORIAS = {
   dato: { label: 'DATOS PERSONALES', icon: '📌', color: '#00d4ff' },
   habito: { label: 'HÁBITOS', icon: '🔄', color: '#ff9944' },
   contacto: { label: 'CONTACTOS', icon: '📞', color: '#ff6688' },
+  bajateapp: { label: 'BAJATEAPP', icon: '🚀', color: '#4a9eff' },
 };
 
 export async function abrirPanelMemoria() {

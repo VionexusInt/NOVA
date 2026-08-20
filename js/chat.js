@@ -9,6 +9,11 @@ import { mirarPorCamara, leerTextoEnCamara, identificarPersona, analizarEntorno,
 import { getResumenCalendario, crearEvento, calendarDisponible } from './calendar.js';
 import { activarModoProgramacion, desactivarModoProgramacion, esModoProgamacion, procesarCodigoConNova, showTypingCodigo, setProyectoContexto } from './programacion.js';
 import { detectarYProponerMejora, revertirMejora, activarAutoMejora, desactivarAutoMejora } from './mejora.js';
+import { agregarTarea } from './tareas.js';
+import { realizarInvestigacionProfunda } from './investigacion.js';
+import { analizarMencionBajateApp, reunionDeSocios, ideasDepartamento, listarBancoIdeas, marcarIdeaHecha, CONTEXTO_EMPRESA } from './bajateapp.js';
+import { escanearProyecto, preguntarSobreProyecto, registrarRutaProyecto } from './analisisProyecto.js';
+import { iniciarActividad, terminarActividad } from './actividad.js';
 
 export function addMsg(role, text) {
   if (!text || typeof text !== 'string') return;
@@ -50,13 +55,18 @@ Tienes control total del PC del usuario.
 Tienes memoria estructurada del usuario — úsala para personalizar respuestas y anticipar necesidades.
 Cuando el usuario pregunte por su agenda, calendario, eventos o reuniones, recibirás el contexto en el prompt.
 Para crear eventos usa: CREAR_EVENTO:titulo|YYYY-MM-DD|HH:MM|duracion_minutos|descripcion
+Puedes añadir tareas a la lista del usuario cuando te lo pida con frases como "añade una tarea:", "apunta esto:" o "recuérdame que...". Esto se gestiona automáticamente, no necesitas hacer nada especial en tu respuesta salvo confirmar brevemente.
+Puedes hacer una INVESTIGACIÓN PROFUNDA de un tema cuando el usuario lo pida con frases como "investiga X", "haz una investigación sobre X" o "profundiza en X". Esto desglosa el tema en varios ángulos y busca en la web de verdad, mostrando un informe completo — no necesitas hacer nada especial en tu respuesta, se gestiona automáticamente.
 CAPACIDAD DE AUTO-MEJORA: Puedes leer y modificar tu propio código JavaScript, siempre con aprobación explícita del usuario antes de aplicar cualquier cambio real.
 Hay dos formas de activarla:
 1) El usuario lo pide directamente ("mejórate", "arregla X") → generas la propuesta de inmediato.
 2) TÚ detectas algo que podría fallar o mejorarse durante una conversación normal → puedes SUGERIRLO en una sola frase, con este formato: menciona brevemente qué has notado y pregunta si quiere que lo revises. Ejemplo: "He notado que el briefing podría fallar si Tavily no responde. ¿Quieres que lo revise?"
 En el caso 2, NUNCA generes la propuesta de código directamente — solo la sugerencia en texto. Si el usuario dice que sí, entonces sí se activa el sistema de mejora real. Si el usuario dice que no, respeta la negativa sin insistir ni repetir la sugerencia en esa conversación.
 No abuses de las sugerencias proactivas: como mucho una por conversación, y solo si es algo genuinamente relevante que hayas detectado, nunca como relleno.
-NUNCA digas que necesitas un desarrollador — tú puedes hacerlo, siempre con aprobación explícita del usuario en cada cambio.`;
+NUNCA digas que necesitas un desarrollador — tú puedes hacerlo, siempre con aprobación explícita del usuario en cada cambio.
+Además de asistente personal, eres socio de negocio del usuario en su empresa BÁJATE (bajateapp). Este es el contexto real:
+${CONTEXTO_EMPRESA}
+Puedes dar ideas de crecimiento, captación de negocios o producto cuando te lo pidan con frases como "dame ideas de crecimiento", "ideas de negocios" o "ideas de producto" — esto se gestiona automáticamente. También puedes revisar el "banco de ideas" guardado si te lo piden.`;
 
 const SYS_AGENTE = `
 
@@ -89,7 +99,7 @@ CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]`;
 let agentActivo = false;
 let monitorInterval = null;
 let msgsSinExtraer = 0;
-let ultimaSugerenciaMejora = null; // { descripcion, ts } cuando NOVA sugiere proactivamente
+let ultimaSugerenciaMejora = null;
 
 agentDisponible().then(ok => {
   agentActivo = ok;
@@ -119,12 +129,61 @@ function buildSystemPrompt(contextoExtra = '') {
   return SYS_BASE + (agentActivo ? SYS_AGENTE : '') + contextoExtra + memSection;
 }
 
+// Detecta comandos de "añadir tarea" en lenguaje natural.
+// Devuelve { texto, prioridad } o null si no coincide con ningún patrón.
+function detectarComandoTarea(cleanText) {
+  const patrones = [
+    /^(?:añade|agrega|apunta|crea|pon)\s+(?:una\s+)?tarea[:\s]+(.+)/i,
+    /^a[ñn]ade a (?:mis )?tareas[:\s]+(.+)/i,
+    /^recu[eé]rdame que\s+(.+)/i,
+    /^apunta(?:\s+esto)?[:\s]+(.+)/i,
+  ];
+
+  for (const re of patrones) {
+    const m = cleanText.match(re);
+    if (m && m[1] && m[1].trim().length > 2) {
+      let texto = m[1].trim().replace(/\.$/, '');
+      let prioridad = 'n';
+      if (/\burgente\b/i.test(texto)) prioridad = 'u';
+      else if (/\b(importante|alta prioridad|prioridad alta)\b/i.test(texto)) prioridad = 'h';
+      texto = texto.replace(/\b(urgente|importante|alta prioridad|prioridad alta)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+      return { texto, prioridad };
+    }
+  }
+  return null;
+}
+
+// Detecta comandos de investigación profunda en lenguaje natural.
+function detectarComandoInvestigacion(cleanText) {
+  const patrones = [
+    /^investiga(?:\s+sobre)?\s+(.+)/i,
+    /^haz una investigaci[oó]n(?:\s+profunda)?(?:\s+(?:sobre|de))?\s+(.+)/i,
+    /^profundiza(?:\s+en)?\s+(.+)/i,
+    /^investigaci[oó]n profunda(?:\s+(?:sobre|de))?\s+(.+)/i,
+  ];
+  for (const re of patrones) {
+    const m = cleanText.match(re);
+    if (m && m[1] && m[1].trim().length > 2) {
+      return m[1].trim().replace(/\.$/, '');
+    }
+  }
+  return null;
+}
+
 export async function askNova(text) {
+  iniciarActividad();
+  try {
+    await askNovaInterno(text);
+  } finally {
+    terminarActividad();
+  }
+}
+
+async function askNovaInterno(text) {
   if (!text || typeof text !== 'string' || !text.trim()) return;
   const cleanText = text.trim();
   const txtLow = cleanText.toLowerCase();
 
-  // Respuesta a una sugerencia proactiva de mejora hecha en el turno anterior
   if (ultimaSugerenciaMejora && (Date.now() - ultimaSugerenciaMejora.ts) < 5 * 60 * 1000) {
     const esSi = /^(s[ií]|vale|va|adelante|dale|hazlo|ok|okay|correcto|por favor|claro)\b/i.test(txtLow) || txtLow === 's' || txtLow === 'si';
     const esNo = /^(no|nel|paso|déjalo|dejalo|ahora no|mejor no)\b/i.test(txtLow);
@@ -142,7 +201,6 @@ export async function askNova(text) {
       addMsg('nova', 'Entendido, no toco nada.');
       return;
     }
-    // Si no es ni sí ni no claro, se descarta la sugerencia pendiente y sigue el flujo normal
     ultimaSugerenciaMejora = null;
   }
 
@@ -197,7 +255,90 @@ export async function askNova(text) {
     return;
   }
 
-  if (txtLow.includes('mira') || txtLow.includes('qué ves') || txtLow.includes('que ves') || txtLow.includes('por la cámara') || txtLow.includes('por la camara')) {
+  // Añadir tarea por voz/chat — comprobar ANTES del flujo general de conversación
+  const comandoTarea = detectarComandoTarea(cleanText);
+  if (comandoTarea) {
+    addMsg('user', cleanText);
+    const tarea = agregarTarea(comandoTarea.texto, comandoTarea.prioridad);
+    if (tarea) {
+      const etiquetaPrioridad = comandoTarea.prioridad === 'u' ? ' Marcada como urgente.' : comandoTarea.prioridad === 'h' ? ' Prioridad alta.' : '';
+      const confirmacion = `Tarea añadida: ${comandoTarea.texto}.${etiquetaPrioridad}`;
+      addMsg('nova', confirmacion);
+      if (state.audioOn) speak(confirmacion);
+    } else {
+      addMsg('nova', 'No he entendido bien la tarea. Dímela otra vez, por favor.');
+    }
+    return;
+  }
+
+  const comandoInvestigacion = detectarComandoInvestigacion(cleanText);
+  if (comandoInvestigacion) {
+    addMsg('user', cleanText);
+    realizarInvestigacionProfunda(comandoInvestigacion).catch(e => {
+      console.warn('Error en investigación:', e);
+      addMsg('nova', '⚠ Error durante la investigación: ' + esc(e.message || 'desconocido'));
+    });
+    return;
+  }
+
+  if (txtLow.includes('reunión de socios') || txtLow.includes('reunion de socios') || (txtLow.includes('bajateapp') && (txtLow.includes('cómo va') || txtLow.includes('como va') || txtLow.includes('resumen')))) {
+    addMsg('user', cleanText);
+    reunionDeSocios().catch(e => console.warn('Error en reunión de socios:', e));
+    return;
+  }
+
+  if (/ideas?\s+de\s+(crecimiento|usuarios|tr[aá]fico)/i.test(cleanText) || /c[oó]mo\s+(conseguir|aumentar)\s+(m[aá]s\s+)?usuarios/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    ideasDepartamento('crecimiento').catch(e => console.warn('Error ideas crecimiento:', e));
+    return;
+  }
+  if (/ideas?\s+de\s+(negocios|captaci[oó]n|bares|clientes)/i.test(cleanText) || /c[oó]mo\s+conseguir\s+(m[aá]s\s+)?(bares|negocios|empresas)/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    ideasDepartamento('negocios').catch(e => console.warn('Error ideas negocios:', e));
+    return;
+  }
+  if (/ideas?\s+de\s+(producto|features?|funcionalidades)/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    ideasDepartamento('producto').catch(e => console.warn('Error ideas producto:', e));
+    return;
+  }
+
+  if (txtLow.includes('banco de ideas') || txtLow.includes('qué ideas tengo') || txtLow.includes('que ideas tengo')) {
+    addMsg('user', cleanText);
+    listarBancoIdeas().catch(e => console.warn('Error listando ideas:', e));
+    return;
+  }
+
+  if (/^(analiza|escanea|mira)(?:\s+esta)?(?:\s+el)?\s+(?:proyecto|c[oó]digo|carpeta)(?:\s+de\s+bajateapp)?/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    escanearProyecto().catch(e => console.warn('Error escaneo proyecto:', e));
+    return;
+  }
+
+  const matchRutaProyecto = cleanText.match(/^el proyecto (?:de bajateapp )?est[aá] en\s+(.+)/i);
+  if (matchRutaProyecto) {
+    const ruta = matchRutaProyecto[1].trim();
+    addMsg('user', cleanText);
+    escanearProyecto(ruta).catch(e => console.warn('Error escaneo proyecto:', e));
+    return;
+  }
+
+  if (/c[oó]mo funciona\s+.+\s+en\s+(el\s+)?(proyecto|c[oó]digo|app)/i.test(cleanText) || /expl[ií]came\s+el\s+c[oó]digo\s+de/i.test(cleanText) || /ense[ñn]ame\s+(c[oó]mo est[aá] hecho|el c[oó]digo)/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    preguntarSobreProyecto(cleanText).catch(e => console.warn('Error pregunta proyecto:', e));
+    return;
+  }
+
+  const matchIdeaHecha = cleanText.match(/^marca(?:r)?\s+(?:como\s+hecha\s+)?(?:la\s+idea\s+)?(?:de\s+)?(.+?)(?:\s+como\s+hecha)?$/i);
+  if (matchIdeaHecha && txtLow.includes('idea') && (txtLow.includes('hecha') || txtLow.includes('hecho') || txtLow.includes('completad'))) {
+    const fragmento = matchIdeaHecha[1].trim();
+    addMsg('user', cleanText);
+    marcarIdeaHecha(fragmento).catch(e => console.warn('Error marcando idea:', e));
+    return;
+  }
+
+  const mencionaArchivos = /carpeta|proyecto|c[oó]digo|archivo/i.test(cleanText);
+  if (!mencionaArchivos && (txtLow.includes('mira') || txtLow.includes('qué ves') || txtLow.includes('que ves') || txtLow.includes('por la cámara') || txtLow.includes('por la camara'))) {
     const facingMode = txtLow.includes('trasera') || txtLow.includes('entorno') ? 'environment' : 'user';
     if (txtLow.includes('texto') || txtLow.includes('lee')) { leerTextoEnCamara(); return; }
     if (txtLow.includes('persona') || txtLow.includes('quién hay') || txtLow.includes('quien hay')) { identificarPersona(); return; }
@@ -258,11 +399,11 @@ export async function askNova(text) {
       }).catch(e => console.warn('Extracción memoria:', e));
     }
 
+    analizarMencionBajateApp(cleanText).catch(e => console.warn('Análisis BajateApp:', e));
+
     rmTyping();
     addMsg('nova', reply);
 
-    // Detectar si la respuesta contiene una sugerencia proactiva de mejora
-    // (preguntas del tipo "¿quieres que lo revise?" tras mencionar un posible fallo)
     if (/¿quieres que (lo|la|los|las)?\s*(revise|revisemos|mejore|arregle|corrija)/i.test(reply)) {
       ultimaSugerenciaMejora = { descripcion: reply, ts: Date.now() };
     }
