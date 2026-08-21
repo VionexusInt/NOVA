@@ -150,17 +150,18 @@ async function initApp() {
     setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
   }
 
-  // Auto-reconexión silenciosa de Google
-setTimeout(async () => {
-  try {
-    const { initCalendar } = await import('./calendar.js');
-    const { initGmail } = await import('./gmail.js');
-    await Promise.allSettled([
-      initCalendar(),
-      initGmail()
-    ]);
-  } catch(e) {}
-}, 500);
+  // Auto-reconexión silenciosa de Google (Calendar, Gmail, Tasks)
+  setTimeout(async () => {
+    try {
+      const [{ initCalendar: iCal }, { initGmail }, { initGoogleTasks }, { initPipeline }] = await Promise.all([
+        import('./calendar.js'),
+        import('./gmail.js'),
+        import('./googleTasks.js'),
+        import('./pipeline.js'),
+      ]);
+      await Promise.allSettled([iCal(), initGmail(), initGoogleTasks(), initPipeline()]);
+    } catch(e) {}
+  }, 800);
 
   setTimeout(async () => {
     const { saludarAlIniciar } = await import('./saludos.js');

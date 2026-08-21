@@ -365,6 +365,18 @@ export async function briefingAutomatico() {
   } catch(e) {
     console.warn('⚠️ Check-in Gmail omitido:', e);
   }
+
+  try {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout pipeline')), 8000));
+    const pipelineCheck = (async () => {
+      const { pipelineDisponible, checkInPipeline } = await import('./pipeline.js');
+      if (!pipelineDisponible()) return;
+      await checkInPipeline();
+    })();
+    await Promise.race([pipelineCheck, timeout]);
+  } catch(e) {
+    console.warn('⚠️ Check-in pipeline omitido:', e);
+  }
   
   const partes = [];
   if (tareas.length > 0) {

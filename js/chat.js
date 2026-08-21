@@ -14,6 +14,7 @@ import { realizarInvestigacionProfunda } from './investigacion.js';
 import { analizarMencionBajateApp, reunionDeSocios, ideasDepartamento, listarBancoIdeas, marcarIdeaHecha, CONTEXTO_EMPRESA } from './bajateapp.js';
 import { escanearProyecto, preguntarSobreProyecto, registrarRutaProyecto } from './analisisProyecto.js';
 import { initGmail, leerEmailsRecientes, redactarConIA, gmailDisponible, resumenEmailsUrgentes } from './gmail.js';
+import { initPipeline, verPipeline, checkInPipeline, crearNegocio, actualizarCampo, pipelineDisponible } from './pipeline.js';
 import { iniciarActividad, terminarActividad } from './actividad.js';
 
 export function addMsg(role, text) {
@@ -246,6 +247,49 @@ async function askNovaInterno(text) {
     const archivo = cleanText.replace(/^(revierte|revertir)\s*/i, '').trim();
     addMsg('user', cleanText);
     revertirMejora(archivo).catch(console.warn);
+    return;
+  }
+
+  if (txtLow.includes('pipeline') && (txtLow.includes('cómo va') || txtLow.includes('como va') || txtLow.includes('estado') || txtLow.includes('resumen') || txtLow.includes('ver') || txtLow.includes('muestra'))) {
+    addMsg('user', cleanText);
+    if (!pipelineDisponible()) { addMsg('nova', 'El pipeline no está conectado. Di "conecta pipeline" primero.'); return; }
+    verPipeline().catch(e => addMsg('nova', '⚠ ' + e.message));
+    return;
+  }
+
+  if (txtLow.includes('conecta pipeline') || txtLow.includes('conectar pipeline') || txtLow.includes('conecta el crm') || txtLow.includes('conecta crm')) {
+    addMsg('user', cleanText);
+    addMsg('nova', '🔐 Conectando con el pipeline...');
+    initPipeline().then(ok => {
+      if (ok) addMsg('nova', 'Pipeline conectado. Puedo consultarlo, actualizarlo y añadir negocios nuevos.');
+      else addMsg('nova', '⚠ No se pudo conectar con el pipeline.');
+    }).catch(e => addMsg('nova', '⚠ Error: ' + e.message));
+    return;
+  }
+
+  const matchNuevoNegocio = cleanText.match(/^a[ñn]ade\s+(?:un\s+)?negocio(?:\s+al\s+pipeline)?[:\s]+(.+)/i);
+  if (matchNuevoNegocio) {
+    addMsg('user', cleanText);
+    if (!pipelineDisponible()) { addMsg('nova', 'El pipeline no está conectado. Di "conecta pipeline" primero.'); return; }
+    const nombre = matchNuevoNegocio[1].trim();
+    crearNegocio({ nombre }).then(ok => {
+      const msg = ok ? `Negocio añadido al pipeline: ${nombre}.` : `⚠ No pude añadir ${nombre} al pipeline.`;
+      addMsg('nova', msg);
+      if (ok && state.audioOn) speak(msg);
+    });
+    return;
+  }
+
+  const matchActualizarEstado = cleanText.match(/^(?:marca|actualiza|pon)\s+(.+?)\s+como\s+(prospecto|contactado|en negociaci[oó]n|firmado)/i);
+  if (matchActualizarEstado) {
+    addMsg('user', cleanText);
+    if (!pipelineDisponible()) { addMsg('nova', 'El pipeline no está conectado.'); return; }
+    const [, nombre, nuevoEstado] = matchActualizarEstado;
+    actualizarCampo(nombre.trim(), 'estado', nuevoEstado.trim()).then(ok => {
+      const msg = ok ? `${nombre.trim()} actualizado a ${nuevoEstado.trim()}.` : `⚠ No encontré "${nombre.trim()}" en el pipeline.`;
+      addMsg('nova', msg);
+      if (ok && state.audioOn) speak(msg);
+    });
     return;
   }
 
