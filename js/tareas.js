@@ -5,10 +5,21 @@ export function saveTasks() {
   localStorage.setItem('nova_tasks', JSON.stringify(state.tasks));
 }
 
-export function agregarTarea(texto, prioridad = 'n') {
+export async function agregarTarea(texto, prioridad = 'n', vencimiento = null) {
   const t = (texto || '').trim();
   if (!t) return null;
   const p = ['u', 'h', 'n'].includes(prioridad) ? prioridad : 'n';
+
+  // Si Google Tasks está disponible, guardar ahí (sincronizado con móvil y Calendar)
+  if (state.tasksConn) {
+    try {
+      const { crearTareaGoogle } = await import('./googleTasks.js');
+      const resultado = await crearTareaGoogle(t, p, vencimiento);
+      if (resultado) return { id: resultado.id, text: t, p, done: false };
+    } catch(e) { console.warn('Error en Google Tasks, usando localStorage:', e.message); }
+  }
+
+  // Fallback: localStorage
   const tarea = { id: Date.now(), text: t, p, done: false };
   state.tasks.unshift(tarea);
   saveTasks();
@@ -27,12 +38,26 @@ export function addTask() {
   i.value = '';
 }
 
-export function toggleTask(id) {
+export async function toggleTask(id) {
+  if (state.tasksConn) {
+    try {
+      const { completarTarea } = await import('./googleTasks.js');
+      await completarTarea(String(id));
+      return;
+    } catch(e) { console.warn('toggleTask Google Tasks error:', e.message); }
+  }
   const t = state.tasks.find(t => t.id === id);
   if (t) { t.done = !t.done; saveTasks(); renderTasks(); }
 }
 
-export function delTask(id) {
+export async function delTask(id) {
+  if (state.tasksConn) {
+    try {
+      const { eliminarTarea } = await import('./googleTasks.js');
+      await eliminarTarea(String(id));
+      return;
+    } catch(e) { console.warn('delTask Google Tasks error:', e.message); }
+  }
   state.tasks = state.tasks.filter(t => t.id !== id);
   saveTasks();
   renderTasks();

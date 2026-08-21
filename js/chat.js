@@ -13,6 +13,7 @@ import { agregarTarea } from './tareas.js';
 import { realizarInvestigacionProfunda } from './investigacion.js';
 import { analizarMencionBajateApp, reunionDeSocios, ideasDepartamento, listarBancoIdeas, marcarIdeaHecha, CONTEXTO_EMPRESA } from './bajateapp.js';
 import { escanearProyecto, preguntarSobreProyecto, registrarRutaProyecto } from './analisisProyecto.js';
+import { analizarPantalla } from './pantalla.js';
 import { initGmail, leerEmailsRecientes, redactarConIA, gmailDisponible, resumenEmailsUrgentes } from './gmail.js';
 import { initPipeline, verPipeline, checkInPipeline, crearNegocio, actualizarCampo, pipelineDisponible } from './pipeline.js';
 import { iniciarActividad, terminarActividad } from './actividad.js';
@@ -98,6 +99,35 @@ PDF: [ACCION:crear_pdf|nombre:titulo|contenido:texto completo aquí]
 Imagen: [ACCION:crear_imagen|nombre:titulo|texto:texto en la imagen]
 CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]`;
 
+const SYS_INTEGRACIONES = `
+
+INTEGRACIONES DE GOOGLE — INSTRUCCIONES:
+Usa el mismo formato [ACCION:nombre|param:valor] para estas acciones. Emítelas cuando detectes la intención del usuario, sea cual sea la forma exacta en que lo pida.
+
+Gmail:
+Conectar: [ACCION:conectar_gmail] — úsalo si el usuario pide algo de Gmail y no está conectado
+Leer correo: [ACCION:leer_emails]
+Redactar/enviar email: [ACCION:abrir_gmail_redactar|instruccion:descripción completa de qué escribir y a quién]
+
+Pipeline de negocios (CRM en Google Sheets):
+Conectar: [ACCION:conectar_pipeline]
+Consultar/ver estado: [ACCION:ver_pipeline]
+Añadir negocio nuevo: [ACCION:anadir_negocio|nombre:Nombre del negocio]
+Actualizar un campo: [ACCION:actualizar_pipeline|nombre:Nombre del negocio|campo:estado|valor:Firmado]
+
+Calendario de Google:
+Conectar: [ACCION:conectar_calendario]
+
+Google Tasks:
+Conectar: [ACCION:conectar_tasks]
+
+Visión de pantalla — puedes ver literalmente lo que el usuario tiene abierto en su PC ahora mismo:
+[ACCION:analizar_pantalla|pregunta:qué necesitas saber sobre lo que hay en pantalla]
+Úsalo cuando el usuario te pida analizar, revisar o consultar algo que probablemente tenga abierto en su navegador (un CRM, una web, un documento) y no tengas otra forma directa de acceder a esos datos.
+
+Si el usuario pregunta "puedes acceder a X" o "tienes acceso a Y" sobre Gmail, el pipeline/CRM, Sheets, calendario o tareas de Google, la respuesta es SÍ — usa la acción correspondiente en vez de decir que no tienes acceso.
+`;
+
 let agentActivo = false;
 let monitorInterval = null;
 let msgsSinExtraer = 0;
@@ -128,7 +158,7 @@ function buildSystemPrompt(contextoExtra = '') {
   let memSection = '';
   if (memEst) memSection = '\n\nMEMORIA ESTRUCTURADA DEL USUARIO:\n' + memEst;
   else if (memTexto) memSection = '\n\nLO QUE SABES DEL USUARIO:\n' + memTexto;
-  return SYS_BASE + (agentActivo ? SYS_AGENTE : '') + contextoExtra + memSection;
+  return SYS_BASE + (agentActivo ? SYS_AGENTE : '') + SYS_INTEGRACIONES + contextoExtra + memSection;
 }
 
 // Detecta comandos de "añadir tarea" en lenguaje natural.
@@ -257,10 +287,31 @@ async function askNovaInterno(text) {
     return;
   }
 
+  if (txtLow.includes('conecta calendario') || txtLow.includes('conectar calendario') || txtLow.includes('conecta agenda') || txtLow.includes('conecta google calendar')) {
+    addMsg('user', cleanText);
+    addMsg('nova', '🔐 Conectando con el calendario...');
+    import('./calendar.js').then(({ initCalendar }) => {
+      initCalendar(true).then(() => addMsg('nova', 'Calendario conectado.')).catch(e => addMsg('nova', '⚠ ' + e.message));
+    });
+    return;
+  }
+
+  if (txtLow.includes('conecta tareas de google') || txtLow.includes('conecta google tasks') || txtLow.includes('conectar tareas de google')) {
+    addMsg('user', cleanText);
+    addMsg('nova', '🔐 Conectando con Google Tasks...');
+    import('./googleTasks.js').then(({ initGoogleTasks }) => {
+      initGoogleTasks(true).then(ok => {
+        addMsg('nova', ok ? 'Google Tasks conectado.' : '⚠ No se pudo conectar.');
+      }).catch(e => addMsg('nova', '⚠ ' + e.message));
+    });
+    return;
+  }
+
   if (txtLow.includes('conecta pipeline') || txtLow.includes('conectar pipeline') || txtLow.includes('conecta el crm') || txtLow.includes('conecta crm')) {
     addMsg('user', cleanText);
     addMsg('nova', '🔐 Conectando con el pipeline...');
-    initPipeline().then(ok => {
+    initPipeline(true).then(async ok => {
+      if (ok) { const { abrirHojaCalculo } = await import('./pipeline.js'); abrirHojaCalculo(); }
       if (ok) addMsg('nova', 'Pipeline conectado. Puedo consultarlo, actualizarlo y añadir negocios nuevos.');
       else addMsg('nova', '⚠ No se pudo conectar con el pipeline.');
     }).catch(e => addMsg('nova', '⚠ Error: ' + e.message));
@@ -296,7 +347,7 @@ async function askNovaInterno(text) {
   if (txtLow.includes('conecta gmail') || txtLow.includes('conectar gmail') || txtLow.includes('autoriza gmail')) {
     addMsg('user', cleanText);
     addMsg('nova', '🔐 Conectando con Gmail...');
-    initGmail().then(ok => {
+    initGmail(true).then(ok => {
       if (ok) { addMsg('nova', 'Gmail conectado. Puedes pedirme que lea tu correo o redacte emails.'); }
       else { addMsg('nova', '⚠ No se pudo conectar con Gmail. Comprueba que el Client ID de Google esté configurado.'); }
     }).catch(e => addMsg('nova', '⚠ Error: ' + e.message));
@@ -337,6 +388,30 @@ async function askNovaInterno(text) {
     } else {
       addMsg('nova', 'No he entendido bien la tarea. Dímela otra vez, por favor.');
     }
+    return;
+  }
+
+  if (/^abre instagram|abre mi instagram|abre el instagram personal/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    window.open('https://www.instagram.com/', '_blank');
+    addMsg('nova', 'Instagram abierto.');
+    if (state.audioOn) speak('Instagram abierto.');
+    return;
+  }
+
+  const matchInstaPost = cleanText.match(/^sube (?:esto |algo )?a (?:mi )?instagram(?:\s+(.+))?/i);
+  if (matchInstaPost) {
+    addMsg('user', cleanText);
+    window.open('https://www.instagram.com/', '_blank');
+    const nota = matchInstaPost[1] ? ` Sobre: ${matchInstaPost[1]}.` : '';
+    addMsg('nova', `He abierto Instagram para que subas el contenido.${nota} Tu Instagram personal no tiene API — tienes que subirlo tú directamente.`);
+    if (state.audioOn) speak('Instagram abierto para que lo subas tú.');
+    return;
+  }
+
+  if (/mi pantalla|qu[ée] (hay|ves) en (mi )?pantalla|analiza (mi |la )?pantalla|mira (mi |la )?pantalla/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    analizarPantalla(cleanText).catch(e => console.warn('Error analizando pantalla:', e));
     return;
   }
 
@@ -451,7 +526,13 @@ async function askNovaInterno(text) {
     );
 
     const { acciones, textoLimpio } = parsearAccionPC(rawReply);
-    const reply = (textoLimpio || rawReply).replace(/CREAR_EVENTO:[^\s]+/g, '').trim() || 'Procesando.';
+    let reply;
+    if (acciones.length > 0) {
+      // Si había etiquetas [ACCION:...], NUNCA volver al texto sin limpiar aunque quede vacío
+      reply = textoLimpio.replace(/CREAR_EVENTO:[^\s]+/g, '').trim() || 'Procesando.';
+    } else {
+      reply = (textoLimpio || rawReply).replace(/CREAR_EVENTO:[^\s]+/g, '').trim() || 'Procesando.';
+    }
 
     state.hist.push({ role: 'assistant', content: reply });
     if (state.hist.length > 40) state.hist = state.hist.slice(-40);
@@ -484,10 +565,80 @@ async function askNovaInterno(text) {
       if (ev) addMsg('nova', `✅ Evento creado: ${titulo.trim()}`);
     }
 
-    if (acciones.length > 0 && agentActivo) {
+    const ACCIONES_GOOGLE = new Set([
+      'conectar_gmail', 'leer_emails', 'abrir_gmail_redactar',
+      'conectar_pipeline', 'ver_pipeline', 'anadir_negocio', 'actualizar_pipeline',
+      'conectar_calendario', 'conectar_tasks', 'analizar_pantalla'
+    ]);
+    const accionesGoogle = acciones.filter(a => ACCIONES_GOOGLE.has(a.accion));
+    const accionesPC = acciones.filter(a => !ACCIONES_GOOGLE.has(a.accion));
+
+    for (const { accion, params } of accionesGoogle) {
+      try {
+        switch (accion) {
+          case 'conectar_gmail': {
+            const { initGmail: iG } = await import('./gmail.js');
+            await iG(true);
+            break;
+          }
+          case 'leer_emails': {
+            const { leerEmailsRecientes: lE } = await import('./gmail.js');
+            await lE();
+            break;
+          }
+          case 'abrir_gmail_redactar': {
+            const { redactarConIA: rC } = await import('./gmail.js');
+            await rC(params.instruccion || cleanText);
+            break;
+          }
+          case 'conectar_pipeline': {
+            const { initPipeline: iP } = await import('./pipeline.js');
+            await iP(true);
+            break;
+          }
+          case 'ver_pipeline': {
+            const { verPipeline: vP } = await import('./pipeline.js');
+            await vP();
+            break;
+          }
+          case 'anadir_negocio': {
+            const { crearNegocio: cN } = await import('./pipeline.js');
+            const ok = await cN({ nombre: params.nombre || '' });
+            addMsg('nova', ok ? `Negocio añadido: ${params.nombre}.` : `⚠ No pude añadir ${params.nombre}.`);
+            break;
+          }
+          case 'actualizar_pipeline': {
+            const { actualizarCampo: aC } = await import('./pipeline.js');
+            const ok = await aC(params.nombre || '', params.campo || '', params.valor || '');
+            addMsg('nova', ok ? `${params.nombre} actualizado.` : `⚠ No encontré "${params.nombre}" en el pipeline.`);
+            break;
+          }
+          case 'conectar_calendario': {
+            const { initCalendar: iC } = await import('./calendar.js');
+            await iC(true);
+            break;
+          }
+          case 'conectar_tasks': {
+            const { initGoogleTasks: iT } = await import('./googleTasks.js');
+            await iT(true);
+            break;
+          }
+          case 'analizar_pantalla': {
+            const { analizarPantalla: aP } = await import('./pantalla.js');
+            await aP(params.pregunta || cleanText);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn(`Error en acción Google "${accion}":`, e.message);
+        addMsg('nova', `⚠ Error con ${accion}: ${e.message}`);
+      }
+    }
+
+    if (accionesPC.length > 0 && agentActivo) {
       setOrb('thinking');
-      addMsg('nova', `⚡ Ejecutando ${acciones.length} acción${acciones.length > 1 ? 'es' : ''}...`);
-      const resultados = await procesarAccionesPC(acciones);
+      addMsg('nova', `⚡ Ejecutando ${accionesPC.length} acción${accionesPC.length > 1 ? 'es' : ''}...`);
+      const resultados = await procesarAccionesPC(accionesPC);
       const fallos = resultados.filter(r => !r.ok);
       if (fallos.length > 0) addMsg('nova', `⚠ Fallo en: ${fallos.map(f => f.accion).join(', ')}`);
     }

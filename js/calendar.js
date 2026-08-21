@@ -3,6 +3,7 @@ import { esc } from './helpers.js';
 import { state } from './state.js';
 import { addMsg } from './chat.js';
 import { speak } from './audio.js';
+import { cargarGIS } from './googleAuth.js';
 
 let tokenClient = null;
 let accessToken = null;
@@ -39,24 +40,17 @@ function tokenValido() {
   return accessToken && Date.now() < tokenExpiry;
 }
 
-async function cargarGIS() {
-  if (gisLoaded) return;
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('No se pudo cargar Google Identity Services'));
-    document.head.appendChild(script);
-  });
-  gisLoaded = true;
-}
-
-export async function initCalendar() {
+export async function initCalendar(intentarPopup = false) {
   if (cargarTokenGuardado() && tokenValido()) {
     state.calConn = true;
     await loadCalEvents();
     iniciarMonitorCalendario();
     return;
+  }
+
+  if (!intentarPopup) {
+    state.calConn = false;
+    return false;
   }
 
   const setup = document.getElementById('calSetup');

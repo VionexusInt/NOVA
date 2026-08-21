@@ -990,6 +990,60 @@ def nvidia_chat_proxy():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/pantalla/analizar', methods=['POST'])
+def pantalla_analizar():
+    try:
+        data = request.get_json() or {}
+        pregunta = data.get('pregunta', '') or 'Describe con detalle qué hay en esta pantalla.'
+        nvidia_key = data.get('key', '')
+
+        if not nvidia_key:
+            return jsonify({'ok': False, 'error': 'Falta la clave de NVIDIA'}), 400
+
+        import io
+        import base64
+        img = pyautogui.screenshot()
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+        import requests as req_lib
+        r = req_lib.post(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {nvidia_key}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            json={
+                'model': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+                'max_tokens': 1024,
+                'reasoning_budget': 512,
+                'temperature': 0.4,
+                'messages': [{
+                    'role': 'user',
+                    'content': [
+                        {'type': 'text', 'text': pregunta},
+                        {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}}
+                    ]
+                }]
+            },
+            timeout=35
+        )
+
+        if r.status_code != 200:
+            return jsonify({'ok': False, 'error': f'NVIDIA respondió {r.status_code}: {r.text[:200]}'}), 502
+
+        d = r.json()
+        texto = d.get('choices', [{}])[0].get('message', {}).get('content', '')
+        if not texto:
+            return jsonify({'ok': False, 'error': 'Respuesta vacía del modelo de visión'}), 502
+
+        return jsonify({'ok': True, 'analisis': texto})
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("🤖 NOVA Agente v2 arrancando...")
     print(f"📁 Proyecto en: {NOVA_ROOT}")

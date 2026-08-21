@@ -153,13 +153,17 @@ async function initApp() {
   // Auto-reconexión silenciosa de Google (Calendar, Gmail, Tasks)
   setTimeout(async () => {
     try {
-      const [{ initCalendar: iCal }, { initGmail }, { initGoogleTasks }, { initPipeline }] = await Promise.all([
-        import('./calendar.js'),
-        import('./gmail.js'),
-        import('./googleTasks.js'),
-        import('./pipeline.js'),
-      ]);
-      await Promise.allSettled([iCal(), initGmail(), initGoogleTasks(), initPipeline()]);
+      const { initCalendar: iCal } = await import('./calendar.js');
+      await iCal().catch(() => {});
+
+      const { initGmail } = await import('./gmail.js');
+      await initGmail().catch(() => {});
+
+      const { initGoogleTasks } = await import('./googleTasks.js');
+      await initGoogleTasks().catch(() => {});
+
+      const { initPipeline } = await import('./pipeline.js');
+      await initPipeline().catch(() => {});
     } catch(e) {}
   }, 800);
 

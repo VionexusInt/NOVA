@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { addMsg } from './chat.js';
 import { speak, speakAndWait } from './audio.js';
 import { groqChat } from './api.js';
+import { cargarGIS } from './googleAuth.js';
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const SPREADSHEET_ID = '1cAY6iB5nhhci9468JQPjejs8c9Ubzp71QteBHYl4hOI';
@@ -35,24 +36,17 @@ function cargarTokenGuardado() {
 
 function tokenValido() { return accessToken && Date.now() < tokenExpiry; }
 
-async function cargarGIS() {
-  if (window.google?.accounts?.oauth2) return;
-  await new Promise((resolve, reject) => {
-    if (document.querySelector('script[src*="accounts.google.com/gsi"]')) { resolve(); return; }
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('No se pudo cargar GIS'));
-    document.head.appendChild(script);
-  });
-}
-
-export async function initPipeline() {
+export async function initPipeline(intentarPopup = false) {
   if (cargarTokenGuardado() && tokenValido()) {
     state.pipelineConn = true;
     await resolverNombreHoja();
     return true;
   }
+  if (!intentarPopup) {
+    state.pipelineConn = false;
+    return false;
+  }
+
   try {
     await cargarGIS();
     const { GCAL_ID } = await import('./config.js');
@@ -201,7 +195,12 @@ export async function checkInPipeline() {
   if (state.audioOn) await speakAndWait(mensaje);
 }
 
+export async function abrirHojaCalculo() {
+  window.open(`https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit`, '_blank');
+}
+
 export async function verPipeline() {
+  abrirHojaCalculo();
   const resumen = await resumenPipeline();
   if (!resumen) {
     addMsg('nova', 'No he podido leer el pipeline. ¿Está conectado el CRM?');

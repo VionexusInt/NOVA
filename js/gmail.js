@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { addMsg } from './chat.js';
 import { speak, speakAndWait } from './audio.js';
 import { groqChat } from './api.js';
+import { cargarGIS } from './googleAuth.js';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const TOKEN_KEY = 'nova_gmail_token';
@@ -28,23 +29,16 @@ function cargarTokenGuardado() {
 
 function tokenValido() { return accessToken && Date.now() < tokenExpiry; }
 
-async function cargarGIS() {
-  if (gisLoaded || window.google?.accounts?.oauth2) { gisLoaded = true; return; }
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.onload = resolve;
-    script.onerror = () => reject(new Error('No se pudo cargar GIS'));
-    document.head.appendChild(script);
-  });
-  gisLoaded = true;
-}
-
-export async function initGmail() {
+export async function initGmail(intentarPopup = false) {
   if (cargarTokenGuardado() && tokenValido()) {
     state.gmailConn = true;
     return true;
   }
+  if (!intentarPopup) {
+    state.gmailConn = false;
+    return false;
+  }
+
   try {
     await cargarGIS();
     const { GCAL_ID } = await import('./config.js');

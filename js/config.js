@@ -2,7 +2,7 @@
 //  CONFIG.JS  —  Constantes + Gestión completa de configuración
 // ═════════════════════════════════════════════════════════════════
 
-export const API_KEY = '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';
+export const API_KEY = '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';
 export const ELEVEN_KEY = 'sk_404e2f2932e004d99c1d7b2c2cdcf4f440ddd52786d2fe47';
 export const ELEVEN_V = 'SRyJwjhI40bOiXgtq1Ia';
 export const SUPA_URL = 'https://ufmlofblsepronbyzish.supabase.co';
