@@ -216,23 +216,48 @@ export async function getEventosHoy() {
 export async function crearEvento(titulo, fecha, hora, duracionMin = 60, descripcion = '') {
   if (!state.calConn) return null;
   try {
-    const start = new Date(`${fecha}T${hora}:00`);
-    if (isNaN(start.getTime())) throw new Error('Fecha u hora inválida');
+    // Normalizar hora — asegurar formato HH:MM
+    const horaNorm = hora.includes(':') ? hora.substring(0, 5) : hora.padStart(4, '0').replace(/(\d{2})(\d{2})/, '$1:$2');
+
+    // Construir la fecha como string local Madrid (no UTC) para evitar desfases de zona horaria
+    const fechaHoraLocal = `${fecha}T${horaNorm}:00`;
+    const start = new Date(fechaHoraLocal);
+
+    if (isNaN(start.getTime())) {
+      console.error('Fecha u hora inválida:', fecha, hora);
+      throw new Error(`Fecha u hora inválida: ${fecha} ${hora}`);
+    }
+
     const end = new Date(start.getTime() + duracionMin * 60 * 1000);
 
+    // Usar dateTime local con timezone en vez de ISO (UTC) — así respeta la hora que dices
     const body = {
       summary: titulo,
-      description: descripcion,
-      start: { dateTime: start.toISOString(), timeZone: 'Europe/Madrid' },
-      end: { dateTime: end.toISOString(), timeZone: 'Europe/Madrid' }
+      description: descripcion || '',
+      start: { dateTime: fechaHoraLocal, timeZone: 'Europe/Madrid' },
+      end: { dateTime: `${fecha}T${horaNorm.substring(0,2)}:${String(parseInt(horaNorm.substring(3)) + duracionMin % 60).padStart(2,'0')}:00`.replace(/T(\d{2}):(\d{2}):/, (m, h, m2) => {
+        const totalMin = parseInt(horaNorm.substring(0,2)) * 60 + parseInt(horaNorm.substring(3)) + duracionMin;
+        return `T${String(Math.floor(totalMin/60) % 24).padStart(2,'0')}:${String(totalMin % 60).padStart(2,'0')}:`;
+      }), timeZone: 'Europe/Madrid' }
     };
 
-    return await calFetch('/calendars/primary/events', {
+    // Simplificar end — usar Date que ya calculamos
+    body.end = {
+      dateTime: `${fecha}T${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}:00`,
+      timeZone: 'Europe/Madrid'
+    };
+
+    console.log('[CALENDAR] Creando evento:', body);
+
+    const resultado = await calFetch('/calendars/primary/events', {
       method: 'POST',
       body: JSON.stringify(body)
     });
+
+    console.log('[CALENDAR] Evento creado:', resultado?.id, resultado?.htmlLink);
+    return resultado;
   } catch (e) {
-    console.error('Error creando evento:', e.message);
+    console.error('[CALENDAR] Error creando evento:', e.message);
     return null;
   }
 }

@@ -13,6 +13,7 @@ import { agregarTarea } from './tareas.js';
 import { realizarInvestigacionProfunda } from './investigacion.js';
 import { analizarMencionBajateApp, reunionDeSocios, ideasDepartamento, listarBancoIdeas, marcarIdeaHecha, CONTEXTO_EMPRESA } from './bajateapp.js';
 import { escanearProyecto, preguntarSobreProyecto, registrarRutaProyecto } from './analisisProyecto.js';
+import { initGmail, leerEmailsRecientes, redactarConIA, gmailDisponible, resumenEmailsUrgentes } from './gmail.js';
 import { iniciarActividad, terminarActividad } from './actividad.js';
 
 export function addMsg(role, text) {
@@ -245,6 +246,30 @@ async function askNovaInterno(text) {
     const archivo = cleanText.replace(/^(revierte|revertir)\s*/i, '').trim();
     addMsg('user', cleanText);
     revertirMejora(archivo).catch(console.warn);
+    return;
+  }
+
+  if (txtLow.includes('conecta gmail') || txtLow.includes('conectar gmail') || txtLow.includes('autoriza gmail')) {
+    addMsg('user', cleanText);
+    addMsg('nova', '🔐 Conectando con Gmail...');
+    initGmail().then(ok => {
+      if (ok) { addMsg('nova', 'Gmail conectado. Puedes pedirme que lea tu correo o redacte emails.'); }
+      else { addMsg('nova', '⚠ No se pudo conectar con Gmail. Comprueba que el Client ID de Google esté configurado.'); }
+    }).catch(e => addMsg('nova', '⚠ Error: ' + e.message));
+    return;
+  }
+
+  if (txtLow.includes('lee mi correo') || txtLow.includes('emails sin leer') || txtLow.includes('correos nuevos') || txtLow.includes('tengo emails') || (txtLow.includes('gmail') && (txtLow.includes('qué hay') || txtLow.includes('que hay') || txtLow.includes('revisa') || txtLow.includes('bandeja')))) {
+    addMsg('user', cleanText);
+    if (!gmailDisponible()) { addMsg('nova', 'Gmail no conectado. Di "conecta Gmail" primero.'); return; }
+    leerEmailsRecientes().catch(e => addMsg('nova', '⚠ ' + e.message));
+    return;
+  }
+
+  if (/^redacta?\s+(?:un\s+)?(?:email|correo)/i.test(cleanText) || /^escribe?\s+(?:un\s+)?(?:email|correo)/i.test(cleanText) || /^manda?\s+(?:un\s+)?(?:email|correo)/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    if (!gmailDisponible()) { addMsg('nova', 'Gmail no conectado. Di "conecta Gmail" primero.'); return; }
+    redactarConIA(cleanText).catch(e => addMsg('nova', '⚠ ' + e.message));
     return;
   }
 

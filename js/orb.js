@@ -398,19 +398,37 @@ export function setOrb(s) {
         speaking: 'respondiendo',
         cinematic: 'activando sistemas'
     };
+
     const el = document.getElementById('orbLbl');
     if (el) {
         el.textContent = labels[s] || 'en espera';
         el.className = 'entity-state' + (s !== 'idle' ? ' active' : '');
     }
+
+    const hudDot = document.querySelector('.status-dot');
+    const hudStatus = hudDot ? hudDot.closest('.status-row')?.querySelector('span:last-child') : null;
+    const hudColors = {
+        idle:      { bg: 'rgba(82,214,138,0.9)',  shadow: 'rgba(82,214,138,0.6)',  text: 'activo' },
+        listening: { bg: 'rgba(255,120,120,0.9)',  shadow: 'rgba(255,120,120,0.6)', text: 'escuchando' },
+        thinking:  { bg: 'rgba(230,190,120,0.9)',  shadow: 'rgba(230,190,120,0.6)', text: 'procesando' },
+        speaking:  { bg: 'rgba(140,230,180,0.9)',  shadow: 'rgba(140,230,180,0.6)', text: 'respondiendo' },
+        cinematic: { bg: 'rgba(100,200,255,0.9)',  shadow: 'rgba(100,200,255,0.7)', text: 'iniciando' },
+    };
+    const c = hudColors[s] || hudColors.idle;
+    if (hudDot) {
+        hudDot.style.background = c.bg;
+        hudDot.style.boxShadow = `0 0 8px ${c.shadow}`;
+    }
+    if (hudStatus) hudStatus.textContent = c.text;
+
     if (s !== 'idle') targetLvl = Math.max(targetLvl, 0.5);
     else setTimeout(() => { if (orbState === 'idle') targetLvl = 0; }, 1500);
 
-  import('./mini_orb.js').then(m => {
-    m.setMiniOrbState(s);
-    if (s !== 'idle') m.setMiniOrbAudio(0.6);
-    else m.setMiniOrbAudio(0);
-  });
+    import('./mini_orb.js').then(m => {
+        m.setMiniOrbState(s);
+        if (s !== 'idle') m.setMiniOrbAudio(0.6);
+        else m.setMiniOrbAudio(0);
+    });
 }
 
 export function setTargetLevel(v) {

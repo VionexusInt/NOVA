@@ -150,6 +150,18 @@ async function initApp() {
     setTimeout(() => { loadingEl.style.display = 'none'; }, 500);
   }
 
+  // Auto-reconexión silenciosa de Google
+setTimeout(async () => {
+  try {
+    const { initCalendar } = await import('./calendar.js');
+    const { initGmail } = await import('./gmail.js');
+    await Promise.allSettled([
+      initCalendar(),
+      initGmail()
+    ]);
+  } catch(e) {}
+}, 500);
+
   setTimeout(async () => {
     const { saludarAlIniciar } = await import('./saludos.js');
     await saludarAlIniciar();

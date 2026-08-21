@@ -1,4 +1,5 @@
 import { groqChat } from './api.js';
+import { initGmail, resumenEmailsUrgentes, gmailDisponible } from './gmail.js';
 import { state } from './state.js';
 import { formatearMemoria } from './api.js';
 import { getResumenCalendario, calendarDisponible, getEventosHoy } from './calendar.js';
@@ -349,6 +350,20 @@ export async function briefingAutomatico() {
     await Promise.race([secuenciaSocio, timeoutGlobal]);
   } catch (e) {
     console.warn('⚠️ Check-in de socio omitido:', e);
+  }
+
+  try {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout gmail')), 8000));
+    const gmailCheck = (async () => {
+      if (!gmailDisponible()) return;
+      const resumen = await resumenEmailsUrgentes();
+      if (resumen && !/tranquilo|sin urgente|no hay nada/i.test(resumen)) {
+        await decir(resumen);
+      }
+    })();
+    await Promise.race([gmailCheck, timeout]);
+  } catch(e) {
+    console.warn('⚠️ Check-in Gmail omitido:', e);
   }
   
   const partes = [];

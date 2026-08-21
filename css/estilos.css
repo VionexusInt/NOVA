@@ -163,6 +163,7 @@ html, body {
 }
 
 .status-dot {
+  transition: background 0.4s ease, box-shadow 0.4s ease;
   width: 4px; height: 4px; border-radius: 50%;
   background: var(--alive);
   box-shadow: 0 0 6px var(--alive);
