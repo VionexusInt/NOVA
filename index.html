@@ -59,10 +59,10 @@
 
     <div class="quick-actions">
       <div class="qa-btn" id="qaTasks">tareas</div>
-      
+      <div class="qa-btn" id="qaEmail">email</div>
       <div class="qa-btn" id="qaBriefing">briefing</div>
       <div class="qa-btn" id="qaCalendar">agenda</div>
-      
+      <div class="qa-btn" id="qaMarketing">marketing</div>
       <div class="qa-btn" id="qaMemoria">memoria</div>
       <div class="qa-btn" id="qaConfig">config</div>
     </div>
@@ -130,7 +130,7 @@
           <div class="task-pri-dot" data-p="h" onclick="selectPri(this)" title="Alta"></div>
           <div class="task-pri-dot" data-p="u" onclick="selectPri(this)" title="Urgente"></div>
         </div>
-        
+        <button class="action-btn" id="taskAddBtn" onclick="addTask()">+</button>
       </div>
       <div id="tasksList"></div>
     </div>
@@ -167,7 +167,7 @@
         <div class="label">Mensaje</div>
         <textarea class="fi-ta" id="eBody" placeholder="Describe lo que quieres comunicar..."></textarea>
       </div>
-      
+      <button class="action-btn full" id="btnGenEmail" onclick="genEmail()">Generar email</button>
       <div class="result-box" id="eResult" style="margin-top:20px;">
         <span class="result-placeholder">El email aparecerá aquí...</span>
       </div>
@@ -194,7 +194,7 @@
       <div class="field">
         <textarea class="fi-ta" id="mktIn" placeholder="Describe tu negocio, objetivo o contexto..."></textarea>
       </div>
-      
+      <button class="action-btn full" id="btnGenMarketing" onclick="genMarketing()">Generar estrategia</button>
       <div class="result-box" id="mktResult" style="margin-top:20px;">
         <span class="result-placeholder">La estrategia aparecerá aquí...</span>
       </div>
@@ -211,7 +211,7 @@
     </div>
     <div class="fp-body">
       <div id="calSetup">
-        
+        <button class="action-btn full" id="btnConnectCal" onclick="initCalendar()">Conectar calendario</button>
       </div>
       <div id="calEvents" style="display:none;"></div>
     </div>

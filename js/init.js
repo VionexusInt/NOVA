@@ -176,3 +176,4 @@ async function initApp() {
 initApp();
 
 document.getElementById('pipBtn')?.addEventListener('click', toggleMiniOrbPip);
+import('./commandCenter.js').then(({ initCommandCenter }) => initCommandCenter());

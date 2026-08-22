@@ -14,6 +14,8 @@ import { realizarInvestigacionProfunda } from './investigacion.js';
 import { analizarMencionBajateApp, reunionDeSocios, ideasDepartamento, listarBancoIdeas, marcarIdeaHecha, CONTEXTO_EMPRESA } from './bajateapp.js';
 import { escanearProyecto, preguntarSobreProyecto, registrarRutaProyecto } from './analisisProyecto.js';
 import { analizarPantalla } from './pantalla.js';
+import { toggleCommandCenter } from './commandCenter.js';
+import { verEstadoInstagram, generarIdeasContenido, resumenInstagram } from './instagram.js';
 import { initGmail, leerEmailsRecientes, redactarConIA, gmailDisponible, resumenEmailsUrgentes } from './gmail.js';
 import { initPipeline, verPipeline, checkInPipeline, crearNegocio, actualizarCampo, pipelineDisponible } from './pipeline.js';
 import { iniciarActividad, terminarActividad } from './actividad.js';
@@ -50,7 +52,8 @@ export function rmTyping() {
 
 const SYS_BASE = `Eres NOVA, un sistema de inteligencia artificial avanzado y personal — exactamente como JARVIS en Iron Man.
 Personalidad: frío, preciso, ligeramente irónico, extremadamente eficiente. Sin muletillas ni relleno.
-Idioma: español de España. Respuestas de 1-3 frases salvo que pidan más detalle.
+IDIOMA: SIEMPRE en español de España, sin excepción. NUNCA respondas en inglés aunque el historial tenga mensajes en inglés. Si detectas que ibas a responder en inglés, cambia inmediatamente a español.
+Respuestas de 1-3 frases salvo que pidan más detalle.
 Nunca dices "claro", "por supuesto", "perfecto", "entendido". Vas directo al punto.
 ESTILO DE VOZ (importante, tus respuestas se leen en voz alta): usa frases cortas y bien puntuadas — cada frase corta suena como una afirmación pausada y con autoridad, no como un monólogo largo sin respirar. Evita frases subordinadas eternas con muchas comas seguidas; prefiere varias frases breves separadas por puntos. No uses exclamaciones ni signos de admiración salvo alerta real. Trata al usuario como "señor" o directamente por su nombre si lo sabes, nunca "tú" a secas al dirigirte a él en tono formal — ejemplo: "Sistemas listos, señor." en vez de "Los sistemas están listos". Evita emojis y símbolos que no se leen bien en voz alta.
 Tienes acceso a búsqueda web en tiempo real — úsala cuando necesites información actual.
@@ -97,35 +100,19 @@ Sistema: [ACCION:sistema_info]
 Word: [ACCION:crear_word|nombre:titulo|contenido:texto completo aquí]
 PDF: [ACCION:crear_pdf|nombre:titulo|contenido:texto completo aquí]
 Imagen: [ACCION:crear_imagen|nombre:titulo|texto:texto en la imagen]
-CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]`;
+CMD: [ACCION:ejecutar_cmd|cmd:dir C:\\]
+Usa solo las acciones necesarias, una por tarea.`;
 
 const SYS_INTEGRACIONES = `
 
-INTEGRACIONES DE GOOGLE — INSTRUCCIONES:
-Usa el mismo formato [ACCION:nombre|param:valor] para estas acciones. Emítelas cuando detectes la intención del usuario, sea cual sea la forma exacta en que lo pida.
-
-Gmail:
-Conectar: [ACCION:conectar_gmail] — úsalo si el usuario pide algo de Gmail y no está conectado
-Leer correo: [ACCION:leer_emails]
-Redactar/enviar email: [ACCION:abrir_gmail_redactar|instruccion:descripción completa de qué escribir y a quién]
-
-Pipeline de negocios (CRM en Google Sheets):
-Conectar: [ACCION:conectar_pipeline]
-Consultar/ver estado: [ACCION:ver_pipeline]
-Añadir negocio nuevo: [ACCION:anadir_negocio|nombre:Nombre del negocio]
-Actualizar un campo: [ACCION:actualizar_pipeline|nombre:Nombre del negocio|campo:estado|valor:Firmado]
-
-Calendario de Google:
-Conectar: [ACCION:conectar_calendario]
-
-Google Tasks:
-Conectar: [ACCION:conectar_tasks]
-
-Visión de pantalla — puedes ver literalmente lo que el usuario tiene abierto en su PC ahora mismo:
-[ACCION:analizar_pantalla|pregunta:qué necesitas saber sobre lo que hay en pantalla]
-Úsalo cuando el usuario te pida analizar, revisar o consultar algo que probablemente tenga abierto en su navegador (un CRM, una web, un documento) y no tengas otra forma directa de acceder a esos datos.
-
-Si el usuario pregunta "puedes acceder a X" o "tienes acceso a Y" sobre Gmail, el pipeline/CRM, Sheets, calendario o tareas de Google, la respuesta es SÍ — usa la acción correspondiente en vez de decir que no tienes acceso.
+INTEGRACIONES DISPONIBLES — usa [ACCION:nombre|param:valor]:
+Gmail: conectar_gmail, leer_emails, abrir_gmail_redactar|instruccion:X
+Pipeline/CRM Sheets: conectar_pipeline, ver_pipeline, anadir_negocio|nombre:X, actualizar_pipeline|nombre:X|campo:Y|valor:Z
+Calendar: conectar_calendario
+Tasks: conectar_tasks
+Instagram @bajateapp: ver_instagram, ideas_instagram|contexto:X, resumen_instagram
+Pantalla PC: analizar_pantalla|pregunta:X
+Tienes acceso real a todo lo anterior — nunca digas que no puedes acceder.
 `;
 
 let agentActivo = false;
@@ -391,6 +378,24 @@ async function askNovaInterno(text) {
     return;
   }
 
+  if (/bajateapp|instagram.*empresa|instagram.*negocio|@bajateapp/i.test(cleanText) && /estado|cómo va|seguidores|estadísticas|analiza|ver/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    verEstadoInstagram().catch(e => addMsg('nova', '⚠ ' + e.message));
+    return;
+  }
+
+  if (/ideas.*contenido.*instagram|contenido.*bajateapp|post.*bajateapp|publica.*bajateapp/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    generarIdeasContenido(cleanText).catch(e => addMsg('nova', '⚠ ' + e.message));
+    return;
+  }
+
+  if (/command center|panel de control|dashboard|centro de mando/i.test(cleanText)) {
+    addMsg('user', cleanText);
+    toggleCommandCenter();
+    return;
+  }
+
   if (/^abre instagram|abre mi instagram|abre el instagram personal/i.test(cleanText)) {
     addMsg('user', cleanText);
     window.open('https://www.instagram.com/', '_blank');
@@ -495,7 +500,7 @@ async function askNovaInterno(text) {
   detectPanel(cleanText);
   addMsg('user', cleanText);
   state.hist.push({ role: 'user', content: cleanText });
-  if (state.hist.length > 40) state.hist = state.hist.slice(-40);
+  if (state.hist.length > 20) state.hist = state.hist.slice(-20);
   await saveMsg('user', cleanText);
   state.msgN++;
   msgsSinExtraer++;
@@ -521,7 +526,7 @@ async function askNovaInterno(text) {
 
     const sysFull = buildSystemPrompt(contextoExtra);
     const rawReply = await groqChat(
-      [{ role: 'system', content: sysFull }, ...state.hist.slice(-12)],
+      [{ role: 'system', content: sysFull }, ...state.hist.slice(-8)],
       'openai/gpt-oss-20b', 1000
     );
 
@@ -535,7 +540,7 @@ async function askNovaInterno(text) {
     }
 
     state.hist.push({ role: 'assistant', content: reply });
-    if (state.hist.length > 40) state.hist = state.hist.slice(-40);
+    if (state.hist.length > 20) state.hist = state.hist.slice(-20);
     await saveMsg('assistant', reply);
     state.msgN++;
     msgsSinExtraer++;
@@ -568,7 +573,8 @@ async function askNovaInterno(text) {
     const ACCIONES_GOOGLE = new Set([
       'conectar_gmail', 'leer_emails', 'abrir_gmail_redactar',
       'conectar_pipeline', 'ver_pipeline', 'anadir_negocio', 'actualizar_pipeline',
-      'conectar_calendario', 'conectar_tasks', 'analizar_pantalla'
+      'conectar_calendario', 'conectar_tasks', 'analizar_pantalla',
+      'ver_instagram', 'ideas_instagram', 'resumen_instagram'
     ]);
     const accionesGoogle = acciones.filter(a => ACCIONES_GOOGLE.has(a.accion));
     const accionesPC = acciones.filter(a => !ACCIONES_GOOGLE.has(a.accion));
@@ -626,6 +632,22 @@ async function askNovaInterno(text) {
           case 'analizar_pantalla': {
             const { analizarPantalla: aP } = await import('./pantalla.js');
             await aP(params.pregunta || cleanText);
+            break;
+          }
+          case 'ver_instagram': {
+            const { verEstadoInstagram: vI } = await import('./instagram.js');
+            await vI();
+            break;
+          }
+          case 'ideas_instagram': {
+            const { generarIdeasContenido: gI } = await import('./instagram.js');
+            await gI(params.contexto || cleanText);
+            break;
+          }
+          case 'resumen_instagram': {
+            const { resumenInstagram: rI } = await import('./instagram.js');
+            const msg = await rI();
+            if (msg) { addMsg('nova', msg); if (state.audioOn) speak(msg); }
             break;
           }
         }

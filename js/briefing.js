@@ -377,6 +377,22 @@ export async function briefingAutomatico() {
   } catch(e) {
     console.warn('⚠️ Check-in pipeline omitido:', e);
   }
+
+  try {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout instagram')), 8000));
+    const igCheck = (async () => {
+      const { getComentariosSinResponder, resumenInstagram } = await import('./instagram.js');
+      const comentarios = await getComentariosSinResponder();
+      const total = comentarios.reduce((a, p) => a + p.comentarios.length, 0);
+      if (total > 0) {
+        const msg = `@bajateapp tiene ${total} comentario${total > 1 ? 's' : ''} sin responder en Instagram.`;
+        await decir(msg);
+      }
+    })();
+    await Promise.race([igCheck, timeout]);
+  } catch(e) {
+    console.warn('⚠️ Check-in Instagram omitido:', e);
+  }
   
   const partes = [];
   if (tareas.length > 0) {

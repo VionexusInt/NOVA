@@ -101,11 +101,22 @@ html, body {
 .app {
   position: fixed; inset: 0;
   display: grid;
-  grid-template-columns: 1fr 400px;
+  grid-template-columns: 280px 1fr 360px;
   grid-template-rows: 1fr 64px;
-  grid-template-areas: "entity chat" "input input";
+  grid-template-areas: "entity dashboard chat" "input input input";
   z-index: 10;
   overflow: hidden;
+}
+
+/* ── COLUMNA DASHBOARD (Command Center integrado) ── */
+.dashboard-col {
+  grid-area: dashboard;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-hair);
+  border-left: 1px solid var(--border-hair);
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(74,158,255,0.008) 0%, transparent 100%);
 }
 
 /* ── COLUMNA ENTIDAD ── */
